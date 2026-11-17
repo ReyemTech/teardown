@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.3.0 (2026-11-17)
+
+### Features
+
+- Add DNS and network attribution
+  ([`1961437`](https://github.com/ReyemTech/teardown/commit/19614370a315c004a09e46117cc32f0868b87a45))
+
+
 ## v0.2.0 (2026-11-17)
 
 ### Features
