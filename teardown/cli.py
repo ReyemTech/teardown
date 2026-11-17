@@ -21,9 +21,10 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from .analyze import analyze_host, build_aggregate
+from .artifacts import ArtifactStore
 from .enumerate import enumerate_subdomains, probe_live
 from .http_client import Fetcher, FetchResponse, HttpClient
-from .history import HistoryStore, ensure_data_home
+from .history import HistoryStore, data_home, ensure_data_home
 from .models import HostTeardown, ScanResult
 from .render import write_outputs
 from .safety import registrable_domain, safe_url
@@ -85,7 +86,8 @@ def _base_url(final_url: str, fallback: str) -> str:
 async def teardown_host(url: str, fetcher: Fetcher,
                         initial_response: FetchResponse | None = None,
                         modules: Sequence[ScanModule] | None = None,
-                        on_module: Callable[[str, bool], None] | None = None) -> HostTeardown:
+                        on_module: Callable[[str, bool], None] | None = None,
+                        artifact_store: ArtifactStore | None = None) -> HostTeardown:
     """Run the full single-host collection pipeline. Never raises."""
     host_name = urlsplit(url).hostname or url
     host = HostTeardown(target=safe_url(url) or url, host=host_name, scanned_at=_now())
@@ -104,7 +106,8 @@ async def teardown_host(url: str, fetcher: Fetcher,
 
     try:
         context = ScanContext(host=host, response=resp, fetcher=fetcher,
-                              base_url=base, html=resp.text or "")
+                              base_url=base, html=resp.text or "",
+                              artifact_store=artifact_store)
         await run_modules(context, modules, on_module=on_module)
         host.opsec_findings = analyze_host(host)
     except Exception as exc:  # noqa: BLE001 - collection is best-effort per host
@@ -129,12 +132,14 @@ async def run_scan(
     data_dir: str | None = None,
     history: HistoryStore | None = None,
     on_event: ProgressCallback | None = None,
+    save_artifacts: bool = True,
 ) -> ScanResult:
     url, _host, root = _normalize(target)
     result = ScanResult(root_domain=root, scanned_at=_now())
 
     effective_cache = (str(ensure_data_home(data_dir) / "cache")
                        if cache_dir is None else cache_dir)
+    artifact_store = ArtifactStore(data_home(data_dir) / "artifacts") if save_artifacts else None
     scan_id = history.start(root, safe_url(url) or root, result.scanned_at) if history else None
     _emit(on_event, "start", target=root, scan_id=scan_id or "")
     try:
@@ -178,6 +183,7 @@ async def run_scan(
                     on_module=lambda name, success: _emit(
                         on_event, "module", host=host_name, module=name,
                         success=success),
+                    artifact_store=artifact_store,
                 )
                 if history and scan_id:
                     history.checkpoint(scan_id, host)
@@ -222,6 +228,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Data home for reports, cache and history (default: ~/.teardown).")
     p.add_argument("--no-history", action="store_true",
                    help="Do not save this scan to SQLite history.")
+    p.add_argument("--no-artifacts", action="store_true",
+                   help="Do not retain first-party bundles with exposed source maps.")
     p.add_argument("--wordlist", default=None,
                    help="Path to a newline-delimited subdomain wordlist for --active-dns.")
     p.add_argument("--max-hosts", type=_nonnegative_int, default=25,
@@ -319,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             data_dir=args.data_dir,
             history=history,
             on_event=reporter,
+            save_artifacts=not args.no_artifacts,
         ))
 
         paths = None

@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .artifacts import ArtifactStore
 from .collectors.api_discovery import discover_api
 from .collectors.headers import parse_csp, parse_headers
 from .collectors.html_js import (
@@ -42,6 +43,7 @@ class ScanContext:
     fetcher: Fetcher
     base_url: str
     html: str
+    artifact_store: ArtifactStore | None = None
 
 
 @dataclass(frozen=True)
@@ -97,7 +99,10 @@ async def _network(context: ScanContext) -> None:
 
 async def _bundles(context: ScanContext) -> None:
     bundles = extract_bundles(context.html, context.base_url)
-    context.host.bundles = await enrich_bundles(bundles, context.fetcher)
+    context.host.bundles = await enrich_bundles(
+        bundles, context.fetcher, artifact_store=context.artifact_store,
+        host_name=context.host.host,
+    )
 
 
 async def _third_parties(context: ScanContext) -> None:

@@ -400,6 +400,9 @@ def build_aggregate(hosts: list[HostTeardown]) -> Aggregate:
             servers.add(host.http.powered_by)
         for provider in _detect_hosting(host):
             hosting.add(provider)
+        for provider in host.network.providers:
+            if provider.role in {"platform", "cdn", "load_balancer"}:
+                hosting.add(provider.name)
         for tp in host.third_parties or []:
             if tp.name:
                 third_parties.add(tp.name)

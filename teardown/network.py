@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import quote
 
 from .http_client import Fetcher
+from .hosting import detect_cname_providers
 from .models import DnsObservation, GeoIpInfo, HostTeardown, NetworkAddress, NetworkInfo
 
 MAX_ADDRESSES = 8
@@ -164,6 +165,7 @@ async def collect_network(host: HostTeardown, fetcher: Fetcher) -> NetworkInfo:
         return network
     if not network.dns.addresses:
         network.observation = "unknown"
+    network.providers = detect_cname_providers(network.dns.cname_chain)
 
     async def enrich(address: str) -> NetworkAddress:
         entry = NetworkAddress(address=address)

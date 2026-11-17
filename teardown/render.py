@@ -17,7 +17,7 @@ from .models import (
     Severity,
     to_dict,
 )
-from .safety import safe_text, safe_url
+from .safety import safe_text, safe_url, source_map_url
 
 # Severity -> (emoji heading label) for the OPSEC buckets, matching the agent's
 # Step 5 ("### 🔴 Critical" etc.).
@@ -159,6 +159,13 @@ def render_host_markdown(host: HostTeardown) -> str:
         lines.append("- Geo-IP is approximate. A CDN edge location is not the site's origin location.")
     if host.network.dns.cname_chain:
         lines.append("- CNAME chain: " + " → ".join(host.network.dns.cname_chain))
+    if host.network.providers:
+        lines.append("- Hosting and routing evidence:")
+        for provider in host.network.providers:
+            lines.append(
+                f"  - {provider.name} ({provider.role}, {provider.confidence}% confidence): "
+                f"`{provider.evidence}`"
+            )
     if host.network.dns.truncated:
         lines.append("- DNS results truncated at the scan limit.")
     if host.network.addresses:
@@ -186,6 +193,23 @@ def render_host_markdown(host: HostTeardown) -> str:
     else:
         lines.append("- No DNS addresses observed.")
     lines.append("")
+
+    exposed_bundles = [bundle for bundle in host.bundles if bundle.has_sourcemap]
+    if exposed_bundles:
+        lines.append("**Source maps and saved evidence**")
+        lines.append("")
+        for bundle in exposed_bundles:
+            lines.append(f"- Bundle: {safe_url(bundle.url) or bundle.url}")
+            map_url = source_map_url(bundle.url)
+            lines.append(f"  - Public map: {safe_url(map_url) or map_url}")
+            if bundle.source_map_sources:
+                lines.append(f"  - {bundle.source_map_sources} original sources listed")
+            for label, artifact in (("Generated source", bundle.source_artifact),
+                                    ("Source map", bundle.sourcemap_artifact)):
+                if artifact:
+                    lines.append(f"  - {label}: `{artifact.local_path}` "
+                                 f"(SHA-256 `{artifact.sha256}`, sanitized, {artifact.bytes} bytes)")
+        lines.append("")
 
     # API surface
     lines.append("**API surface**")
@@ -265,12 +289,64 @@ def _aggregate_tech_table(result: ScanResult) -> str:
     return "\n".join(lines)
 
 
+def _tldr(result: ScanResult) -> str:
+    live = sum(host.reachable for host in result.hosts)
+    providers = sorted(set(result.aggregate.tech_stack_union.get("hosting", [])))
+    frameworks = result.aggregate.tech_stack_union.get("frameworks", [])
+    counts = {severity: sum(f.severity == severity for host in result.hosts
+                             for f in host.opsec_findings) for severity in Severity}
+    return "\n".join([
+        f"- {live} of {len(result.hosts)} hosts reachable.",
+        f"- Observed hosting/routing: {', '.join(providers) if providers else 'none identified'}.",
+        f"- Frameworks: {', '.join(frameworks) if frameworks else 'none identified'}.",
+        "- Findings: " + ", ".join(f"{counts[s]} {s.value}" for s in Severity) + ".",
+    ])
+
+
+_ACTIONS = {
+    "GraphQL introspection enabled": "Review whether public GraphQL introspection is intended",
+    "WordPress user enumeration open": "Review public WordPress user enumeration",
+    "OpenAPI/Swagger specification publicly exposed": "Review whether the public API specification is intended",
+    "Source map exposed on first-party bundle": "Review the exposed first-party source map and remove it from production if unintended",
+    "Server / framework version disclosure": "Review server and framework version disclosure",
+    "CSP leaks internal/infrastructure hostnames": "Review internal hostnames in the CSP",
+    "Missing HSTS on HTTPS site": "Review HSTS for this HTTPS host",
+    "Missing X-Frame-Options": "Review clickjacking protection",
+    "Missing X-Content-Type-Options": "Review X-Content-Type-Options",
+}
+
+
+def _todo(result: ScanResult) -> str:
+    grouped: dict[str, list[tuple[str, str | None]]] = {}
+    for host in result.hosts:
+        for finding in host.opsec_findings:
+            if finding.severity not in {Severity.CRITICAL, Severity.MEDIUM, Severity.LOW}:
+                continue
+            if finding.title not in _ACTIONS and not finding.title.startswith("Live secret exposed:"):
+                continue
+            grouped.setdefault(finding.title, []).append((host.host, finding.evidence_url))
+    if not grouped:
+        return "- No actionable findings identified."
+    lines = []
+    for title in sorted(grouped):
+        action = (_ACTIONS.get(title) or "Rotate or revoke the exposed secret and review its use")
+        hosts = sorted({name for name, _url in grouped[title]})
+        urls = sorted({safe_url(url) for _name, url in grouped[title] if url and safe_url(url)})
+        evidence = f" Evidence: {', '.join(urls)}." if urls else ""
+        lines.append(f"- [ ] {action} — {', '.join(hosts)}.{evidence}")
+    return "\n".join(lines)
+
+
 def render_markdown(result: ScanResult) -> str:
     """Render the full vault-compatible teardown markdown document."""
     parts: list[str] = []
     parts.append(_frontmatter(result))
     parts.append("")
     parts.append(f"# {result.root_domain} — Architecture Teardown")
+    parts.append("")
+    parts.append("## TL;DR")
+    parts.append("")
+    parts.append(_tldr(result))
     parts.append("")
     parts.append("## Overview")
     parts.append("")
@@ -322,6 +398,11 @@ def render_markdown(result: ScanResult) -> str:
             parts.append(f"- 🔴 **{f.title}** — {f.detail}")
     else:
         parts.append("- No critical findings across the estate.")
+    parts.append("")
+
+    parts.append("## To Do")
+    parts.append("")
+    parts.append(_todo(result))
     parts.append("")
 
     return safe_text("\n".join(parts).rstrip() + "\n")
