@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-SCHEMA_VERSION = "1.3"
+SCHEMA_VERSION = "1.4"
 
 
 class Severity(str, Enum):
@@ -141,6 +141,18 @@ class DnsObservation:
 
 
 @dataclass
+class GeoIpInfo:
+    country_code: str
+    city: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    source: str = "MaxMind GeoLite2 via RIPEstat"
+    source_url: str = "https://www.maxmind.com"
+    precision: str = "approximate_ip"
+    data_updated_at: str | None = None
+
+
+@dataclass
 class NetworkAddress:
     address: str
     prefix: str | None = None
@@ -149,6 +161,7 @@ class NetworkAddress:
     registered_holder: str | None = None
     network_name: str | None = None
     registry: list[str] = field(default_factory=list)
+    geo: GeoIpInfo | None = None
     sources: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 

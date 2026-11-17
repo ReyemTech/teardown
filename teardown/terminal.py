@@ -98,6 +98,12 @@ class CliReporter:
             first = networks[0]
             asn = ", ".join(f"AS{number}" for number in first.asns) or "unknown ASN"
             table.add_row("Observed network", f"{asn} · {first.prefix or 'unknown prefix'}")
+        locations = [entry.geo for host in result.hosts for entry in host.network.addresses
+                     if entry.geo is not None]
+        if locations:
+            first_geo = locations[0]
+            label = ", ".join(part for part in (first_geo.city, first_geo.country_code) if part)
+            table.add_row("Approx. Geo-IP", label)
         if paths:
             table.add_row("JSON", paths["json"])
             table.add_row("Markdown", paths["md"])

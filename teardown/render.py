@@ -155,24 +155,34 @@ def render_host_markdown(host: HostTeardown) -> str:
     observation = {"cdn_edge": "CDN edge", "observed_endpoint": "Observed endpoint"}.get(
         host.network.observation, "Unknown")
     lines.append(f"- Address type: {observation} (DNS observation; origin not inferred)")
+    if any(entry.geo for entry in host.network.addresses):
+        lines.append("- Geo-IP is approximate. A CDN edge location is not the site's origin location.")
     if host.network.dns.cname_chain:
         lines.append("- CNAME chain: " + " → ".join(host.network.dns.cname_chain))
     if host.network.dns.truncated:
         lines.append("- DNS results truncated at the scan limit.")
     if host.network.addresses:
         lines.append("")
-        lines.append("| DNS address | Routed prefix | Origin ASN (holder) | Registered holder | Network name | Sources |")
-        lines.append("|-------------|---------------|---------------------|-------------------|--------------|---------|")
+        lines.append("| DNS address | Routed prefix | Origin ASN (holder) | Registered holder | Network name | Geo-IP | Sources |")
+        lines.append("|-------------|---------------|---------------------|-------------------|--------------|--------|---------|")
         for entry in host.network.addresses:
             asns = ", ".join(
                 f"AS{asn}" + (f" ({_network_cell(entry.asn_holders[str(asn)])})"
                               if str(asn) in entry.asn_holders else "")
                 for asn in entry.asns)
+            geo = (", ".join(part for part in (entry.geo.city, entry.geo.country_code) if part)
+                   if entry.geo else "—")
             lines.append(
                 f"| {_network_cell(entry.address)} | {_network_cell(entry.prefix)} | "
                 f"{asns or '—'} | {_network_cell(entry.registered_holder)} | "
-                f"{_network_cell(entry.network_name)} | {_network_cell(', '.join(entry.sources))} |"
+                f"{_network_cell(entry.network_name)} | {_network_cell(geo)} | "
+                f"{_network_cell(', '.join(entry.sources))} |"
             )
+        if any(entry.geo for entry in host.network.addresses):
+            lines.append("")
+            lines.append("Geo-IP source: MaxMind GeoLite2 via RIPEstat. "
+                         "This product includes GeoLite Data created by MaxMind, "
+                         "available from https://www.maxmind.com.")
     else:
         lines.append("- No DNS addresses observed.")
     lines.append("")

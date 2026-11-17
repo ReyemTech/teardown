@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit
@@ -89,6 +90,7 @@ class HttpClient:
         dns_resolver: Any = None,
     ) -> None:
         self._sem = asyncio.Semaphore(concurrency)
+        self._ripe_sem = asyncio.Semaphore(4)
         self._rl = _RateLimiter(rate_per_sec)
         self._retries = retries
         self._root_domain = root_domain
@@ -134,22 +136,24 @@ class HttpClient:
         return await resolve_dns(host, LimitedResolver())
 
     async def request(self, method: str, url: str, **kwargs) -> FetchResponse:
+        requested_host = urlsplit(url).hostname
+
         def allowed(candidate: str, *, external: bool = False) -> bool:
             parts = urlsplit(candidate)
             if parts.scheme not in ("http", "https"):
                 return False
             if external:
-                if parts.scheme != "https":
+                if parts.scheme != "https" or parts.hostname != requested_host:
                     return False
                 if parts.hostname == "stat.ripe.net":
                     return parts.path in {
                         "/data/network-info/data.json", "/data/as-overview/data.json",
-                        "/data/whois/data.json"}
+                        "/data/whois/data.json", "/data/maxmind-geo-lite/data.json"}
                 return parts.hostname in {"crt.sh", "api.certspotter.com", "web.archive.org"}
             return self._root_domain is None or in_scope(candidate, self._root_domain)
 
-        external = urlsplit(url).hostname in {"crt.sh", "api.certspotter.com", "web.archive.org",
-                                               "stat.ripe.net"}
+        external = requested_host in {"crt.sh", "api.certspotter.com", "web.archive.org",
+                                      "stat.ripe.net"}
         if not allowed(url, external=external):
             return FetchResponse(url=safe_url(url) or "", final_url=safe_url(url) or "",
                                  status=None, error="out-of-scope request blocked")
@@ -163,7 +167,10 @@ class HttpClient:
             chain: list[int] = []
             try:
                 for _ in range(6):
-                    async with self._sem:
+                    async with AsyncExitStack() as slots:
+                        await slots.enter_async_context(self._sem)
+                        if urlsplit(current).hostname == "stat.ripe.net":
+                            await slots.enter_async_context(self._ripe_sem)
                         await self._rl.wait()
                         async with self._client.stream(method, current, **kwargs) as resp:
                             if resp.is_redirect and "location" in resp.headers:

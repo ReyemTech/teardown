@@ -142,6 +142,17 @@ saved in SQLite history and appear in `teardown compare` automatically.
 ([RIPE network info](https://m.stat.ripe.net/docs/data-api/api-endpoints/network-info.html),
 [RIPE WHOIS](https://stat.ripe.net/docs/data-api/api-endpoints/whois))
 
+Schema 1.4 adds optional `network.addresses[].geo`: a Geo-IP country code,
+city when known, coordinates when meaningful, source, and data timestamp.
+This is an approximate database estimate for the observed IP. For a CDN it
+describes a possible edge location, not the site origin; coordinates are not a
+precise server location. Unknown results remain empty. The lookup uses the
+same bounded client and daily cache as other network evidence.
+
+This product includes GeoLite Data created by MaxMind, available from
+https://www.maxmind.com. GeoLite2 data is accessed through the
+[RIPEstat MaxMind GeoLite endpoint](https://stat.ripe.net/docs/data-api/api-endpoints/maxmind-geo-lite).
+
 The wheel bundles 589 MIT-licensed fingerprints (588 from OpenTechAlyzer plus
 the Livewire definition). `teardown fingerprints update` downloads and converts
 the larger WebAppAnalyzer database automatically into the user's local cache.
