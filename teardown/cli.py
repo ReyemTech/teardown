@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import datetime as _dt
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from .analyze import analyze_host, build_aggregate
@@ -26,14 +27,37 @@ from .collectors.html_js import (
     extract_bundles,
     fingerprint_third_parties,
 )
-from .enumerate import enumerate_subdomains, filter_live
-from .http_client import Fetcher, HttpClient
+from .enumerate import enumerate_subdomains, probe_live
+from .http_client import Fetcher, FetchResponse, HttpClient
+from .fingerprints import detect_technologies, framework_names
 from .models import HostTeardown, ScanResult
 from .render import write_outputs
+from .safety import registrable_domain, safe_url
 
 
 def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be at least 0")
+    return parsed
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
 
 
 def _normalize(target: str) -> tuple[str, str, str]:
@@ -44,9 +68,7 @@ def _normalize(target: str) -> tuple[str, str, str]:
     parts = urlsplit(raw)
     host = parts.hostname or ""
     url = f"{parts.scheme}://{parts.netloc}"
-    # naive registrable-domain: last two labels (good enough for enumeration seed)
-    labels = host.split(".")
-    root = ".".join(labels[-2:]) if len(labels) >= 2 else host
+    root = registrable_domain(host)
     return url, host, root
 
 
@@ -57,12 +79,13 @@ def _base_url(final_url: str, fallback: str) -> str:
     return f"{parts.scheme}://{parts.netloc}"
 
 
-async def teardown_host(url: str, fetcher: Fetcher) -> HostTeardown:
+async def teardown_host(url: str, fetcher: Fetcher,
+                        initial_response: FetchResponse | None = None) -> HostTeardown:
     """Run the full single-host collection pipeline. Never raises."""
     host_name = urlsplit(url).hostname or url
-    host = HostTeardown(target=url, host=host_name, scanned_at=_now())
+    host = HostTeardown(target=safe_url(url) or url, host=host_name, scanned_at=_now())
 
-    resp = await fetcher.get(url)
+    resp = initial_response if initial_response is not None else await fetcher.get(url)
     if resp.status is None:
         host.reachable = False
         if resp.error:
@@ -70,6 +93,8 @@ async def teardown_host(url: str, fetcher: Fetcher) -> HostTeardown:
         return host
 
     host.reachable = True
+    if resp.error:
+        host.errors.append(resp.error)
     html = resp.text or ""
     base = _base_url(resp.final_url, url)
 
@@ -77,7 +102,13 @@ async def teardown_host(url: str, fetcher: Fetcher) -> HostTeardown:
         host.http = parse_headers(resp)
         host.csp = parse_csp(resp.headers)
         host.frameworks = detect_frameworks(html)
+        host.detections = detect_technologies(html, resp.headers, resp.final_url)
+        host.frameworks = framework_names(host.detections)
         host.cms = detect_cms(html, resp.headers)
+        if not host.cms.type:
+            cms_matches = [item for item in host.detections if "cms" in item.categories]
+            if cms_matches:
+                host.cms.type = max(cms_matches, key=lambda item: item.confidence).name.lower()
         host.bundles = extract_bundles(html, base)
         host.bundles = await enrich_bundles(host.bundles, fetcher)
         host.third_parties = fingerprint_third_parties(html)
@@ -85,7 +116,7 @@ async def teardown_host(url: str, fetcher: Fetcher) -> HostTeardown:
         host.api_surface = await discover_api(base, fetcher)
         host.opsec_findings = analyze_host(host)
     except Exception as exc:  # noqa: BLE001 - collection is best-effort per host
-        host.errors.append(f"collection error: {type(exc).__name__}: {exc}")
+        host.errors.append(f"collection error: {type(exc).__name__}")
 
     return host
 
@@ -99,28 +130,36 @@ async def run_scan(
     max_hosts: int,
     concurrency: int,
     rate_per_sec: float,
+    max_probes: int = 100,
+    use_subfinder: bool = False,
+    cache_dir: str | None = None,
 ) -> ScanResult:
     url, _host, root = _normalize(target)
     result = ScanResult(root_domain=root, scanned_at=_now())
 
-    async with HttpClient(concurrency=concurrency, rate_per_sec=rate_per_sec) as client:
+    effective_cache = (str(Path.cwd() / ".teardown-cache")
+                       if cache_dir is None else cache_dir)
+    async with HttpClient(concurrency=concurrency, rate_per_sec=rate_per_sec,
+                          root_domain=root, cache_dir=effective_cache) as client:
         if single:
-            live_urls = [url]
+            live = [(url, None)]
             result.enumeration.sources = ["single-host"]
             result.enumeration.subdomains_found = 1
         else:
             subs, enum_info = await enumerate_subdomains(
-                root, client, active_dns=active_dns, wordlist=wordlist
+                root, client, active_dns=active_dns, wordlist=wordlist,
+                use_subfinder=use_subfinder,
             )
-            live_urls = await filter_live(subs, client)
-            enum_info.live_hosts = len(live_urls)
+            live = await probe_live(subs, client, max_probes=max_probes,
+                                    preferred_host=root)
+            enum_info.live_hosts = len(live)
             result.enumeration = enum_info
 
         if max_hosts > 0:
-            live_urls = live_urls[:max_hosts]
-        result.enumeration.live_hosts = len(live_urls)
+            live = live[:max_hosts]
+        result.enumeration.live_hosts = len(live)
 
-        tasks = [teardown_host(u, client) for u in live_urls]
+        tasks = [teardown_host(u, client, resp) for u, resp in live]
         result.hosts = list(await asyncio.gather(*tasks)) if tasks else []
 
     result.aggregate = build_aggregate(result.hosts)
@@ -131,19 +170,27 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="teardown",
         description="Passive web-app architecture teardown with subdomain fan-out.",
+        epilog="Other commands: teardown diff OLD NEW; teardown fingerprints update",
     )
     p.add_argument("target", help="Domain or URL (e.g. example.com or https://example.com)")
     p.add_argument("--single", action="store_true",
                    help="Scan only the given host; skip subdomain enumeration.")
     p.add_argument("--active-dns", action="store_true",
                    help="Opt in to active DNS brute-force enumeration (needs dnspython).")
+    p.add_argument("--subfinder", action="store_true",
+                   help="Use installed subfinder for additional passive sources.")
+    p.add_argument("--cache-dir", default=None,
+                   help="Directory for daily sanitized response cache (default: .teardown-cache).")
+    p.add_argument("--no-cache", action="store_true", help="Disable response cache.")
     p.add_argument("--wordlist", default=None,
                    help="Path to a newline-delimited subdomain wordlist for --active-dns.")
-    p.add_argument("--max-hosts", type=int, default=25,
+    p.add_argument("--max-hosts", type=_nonnegative_int, default=25,
                    help="Cap live hosts torn down (0 = no cap). Default 25.")
-    p.add_argument("--concurrency", type=int, default=10,
+    p.add_argument("--max-probes", type=_nonnegative_int, default=100,
+                   help="Cap hosts checked for liveness (0 = no cap). Default 100.")
+    p.add_argument("--concurrency", type=_positive_int, default=10,
                    help="Max concurrent requests. Default 10.")
-    p.add_argument("--rate", type=float, default=8.0,
+    p.add_argument("--rate", type=_positive_float, default=8.0,
                    help="Global requests/sec cap. Default 8.")
     p.add_argument("--out-dir", default=".",
                    help="Directory for the JSON + markdown outputs. Default cwd.")
@@ -155,6 +202,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "diff":
+        diff_parser = argparse.ArgumentParser(prog="teardown diff")
+        diff_parser.add_argument("old")
+        diff_parser.add_argument("new")
+        paths = diff_parser.parse_args(argv[1:])
+        import json
+        from .diff import diff_files
+        print(json.dumps(diff_files(paths.old, paths.new), indent=2, sort_keys=True))
+        return 0
+    if argv[:2] == ["fingerprints", "update"]:
+        from .fingerprints import update_external_database, external_db_path
+        count = update_external_database()
+        print(f"Imported {count} WebAppAnalyzer fingerprints into {external_db_path()}")
+        return 0
     args = build_parser().parse_args(argv)
 
     wordlist = None
@@ -171,8 +233,11 @@ def main(argv: list[str] | None = None) -> int:
         active_dns=args.active_dns,
         wordlist=wordlist,
         max_hosts=args.max_hosts,
+        max_probes=args.max_probes,
         concurrency=args.concurrency,
         rate_per_sec=args.rate,
+        use_subfinder=args.subfinder,
+        cache_dir="" if args.no_cache else args.cache_dir,
     ))
 
     if args.json_only:

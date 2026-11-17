@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "teardown": {
+      "command": "uvx",
+      "args": [
+        "--with", "fastmcp",
+        "--from", "git+ssh://git@github.com/ReyemTech/teardown",
+        "teardown-mcp"
+      ]
+    }
+  }
+}

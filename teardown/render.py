@@ -17,6 +17,7 @@ from .models import (
     Severity,
     to_dict,
 )
+from .safety import safe_text, safe_url
 
 # Severity -> (emoji heading label) for the OPSEC buckets, matching the agent's
 # Step 5 ("### 🔴 Critical" etc.).
@@ -61,7 +62,7 @@ def _frontmatter(result: ScanResult) -> str:
         f"updated: {today}",
         f"last-updated: {today}",
         "status: active",
-        f"url: {_yaml_escape(_primary_url(result))}",
+        f"url: {_yaml_escape(safe_url(_primary_url(result)) or '')}",
         f"root_domain: {_yaml_escape(result.root_domain)}",
         "---",
     ]
@@ -96,7 +97,7 @@ def _render_findings_block(host: HostTeardown) -> str:
             for f in bucket:
                 detail = f.detail
                 if f.evidence_url:
-                    detail += f" (evidence: {f.evidence_url})"
+                    detail += f" (evidence: {safe_url(f.evidence_url)})"
                 lines.append(f"- **{f.title}** — {detail}")
         lines.append("")
     return "\n".join(lines).rstrip()
@@ -111,7 +112,11 @@ def render_host_markdown(host: HostTeardown) -> str:
     if host.http.status is not None:
         bits.append(f"HTTP {host.http.status}")
     if host.http.final_url:
-        bits.append(host.http.final_url)
+        bits.append(safe_url(host.http.final_url) or "")
+    if host.http.title:
+        bits.append(host.http.title)
+    if host.http.cdn:
+        bits.append(f"CDN: {host.http.cdn}")
     lines.append("_" + " · ".join(bits) + "_")
     lines.append("")
 
@@ -129,6 +134,16 @@ def render_host_markdown(host: HostTeardown) -> str:
         cms_val = host.cms.type + (f" {host.cms.version}" if host.cms.version else "")
         lines.append(f"| CMS | {cms_val} |")
     lines.append("")
+
+    if host.detections:
+        lines.append("**Technology evidence**")
+        lines.append("")
+        lines.append("| Technology | Confidence | Evidence |")
+        lines.append("|------------|------------|----------|")
+        for item in host.detections:
+            evidence = ", ".join(item.evidence[:3]).replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {item.name} | {item.confidence}% | {evidence or '—'} |")
+        lines.append("")
 
     # API surface
     lines.append("**API surface**")
@@ -172,7 +187,7 @@ def render_host_markdown(host: HostTeardown) -> str:
     lines.append("")
     lines.append(_render_findings_block(host))
 
-    return "\n".join(lines).rstrip() + "\n"
+    return safe_text("\n".join(lines).rstrip() + "\n")
 
 
 def _overview(result: ScanResult) -> str:
@@ -267,7 +282,7 @@ def render_markdown(result: ScanResult) -> str:
         parts.append("- No critical findings across the estate.")
     parts.append("")
 
-    return "\n".join(parts).rstrip() + "\n"
+    return safe_text("\n".join(parts).rstrip() + "\n")
 
 
 def write_outputs(result: ScanResult, out_dir: str, basename: str) -> dict[str, str]:

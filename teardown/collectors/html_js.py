@@ -11,42 +11,25 @@ raises (the Fetcher already swallows network errors).
 from __future__ import annotations
 
 import re
+import json
 from urllib.parse import urljoin
 
 from teardown.http_client import Fetcher
 from teardown.models import Bundle, CmsInfo, SecretLeak, ThirdParty
+from teardown.safety import redact_key, safe_url, source_map_url
 
 # --------------------------------------------------------------------------- #
 # Framework detection
 # --------------------------------------------------------------------------- #
 
-# label -> patterns (any match wins), evaluated case-insensitively.
-_FRAMEWORK_SIGNATURES: list[tuple[str, tuple[str, ...]]] = [
-    ("next.js", ("__NEXT_DATA__", "/_next/", "next/dist")),
-    ("nuxt", ("__NUXT__", "/_nuxt/", "window.__NUXT")),
-    ("gatsby", ("___gatsby", "gatsby-", "window.___gatsby")),
-    ("remix", ("__remixContext", "__remixManifest", "remix-run")),
-    ("astro", ("astro-island", "astro-", "data-astro")),
-    ("svelte", ("svelte", "__svelte", "data-svelte")),
-    ("vue", ("__vue__", "data-v-", "vue.js", "vue@", "__VUE")),
-    ("angular", ("ng-version", "ng-app", "angular.", "_nghost", "_ngcontent")),
-    ("react", ("data-reactroot", "data-reactid", "react.", "react-dom", "_reactrootcontainer")),
-    ("vite", ("/@vite/", "/assets/index-", "vite/client", "__vite")),
-    ("webpack", ("webpackjsonp", "webpackchunk", "__webpack_require__")),
-    ("elementor", ("elementor", "/elementor/")),
-]
-
-
 def detect_frameworks(html: str) -> list[str]:
-    """Detect front-end frameworks/build tools from page markup. Deduped, lowercase."""
-    text = html or ""
-    low = text.lower()
-    found: list[str] = []
-    for label, patterns in _FRAMEWORK_SIGNATURES:
-        if any(p.lower() in low for p in patterns):
-            if label not in found:
-                found.append(label)
-    return found
+    """Compatibility view of data-driven framework detections from HTML."""
+    from teardown.fingerprints import detect_technologies, framework_names, load_fingerprints
+
+    framework_categories = {"js-framework", "backend-framework", "ui-framework", "static-site-generator", "build-tool"}
+    definitions = [fp for fp in load_fingerprints()
+                   if framework_categories.intersection(fp.get("categories", []))]
+    return framework_names(detect_technologies(html, {}, "", definitions))
 
 
 # --------------------------------------------------------------------------- #
@@ -163,10 +146,10 @@ def extract_bundles(html: str, base_url: str) -> list[Bundle]:
     """Collect <script src> (js) and <link rel=stylesheet> (css), URLs resolved."""
     text = html or ""
     bundles: list[Bundle] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
 
     def _add(raw_url: str, kind: str) -> None:
-        resolved = urljoin(base_url, raw_url.strip())
+        resolved = safe_url(urljoin(base_url, raw_url.strip())) or ""
         key = (kind, resolved)
         if resolved and key not in seen:
             seen.add(key)
@@ -330,7 +313,7 @@ def fingerprint_third_parties(html: str) -> list[ThirdParty]:
         if key_re is not None:
             km = key_re.search(text)
             if km:
-                key = km.group(1)
+                key = redact_key(km.group(1))
         found.append(
             ThirdParty(name=name, category=category, key=key, evidence=hit)
         )
@@ -438,9 +421,18 @@ async def enrich_bundles(
 
         try:
             # 1. Sourcemap probe.
-            map_resp = await fetcher.get(bundle.url + ".map")
+            map_resp = await fetcher.get(source_map_url(bundle.url))
             if map_resp.status == 200:
-                bundle.has_sourcemap = True
+                try:
+                    source_map = json.loads(map_resp.text)
+                except (TypeError, ValueError):
+                    source_map = None
+                bundle.has_sourcemap = (
+                    isinstance(source_map, dict)
+                    and source_map.get("version") == 3
+                    and isinstance(source_map.get("sources"), list)
+                    and isinstance(source_map.get("mappings"), str)
+                )
 
             # 2. Fetch + scan the bundle body.
             body_resp = await fetcher.get(bundle.url)

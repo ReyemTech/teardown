@@ -1,7 +1,7 @@
 """Subdomain enumeration and liveness filtering.
 
-Passive by default: queries crt.sh certificate transparency logs. An opt-in
-active path (``active_dns=True``) brute-forces a small wordlist via DNS, with
+Passive by default: queries crt.sh, CertSpotter and Wayback. An opt-in active
+path (``active_dns=True``) brute-forces a small wordlist via DNS, with
 ``dnspython`` lazy-imported so the tool runs without it when the active path is
 not used.
 """
@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import shutil
 from typing import Any
+from urllib.parse import urlsplit
 
-from .http_client import Fetcher
+from .http_client import Fetcher, FetchResponse
 from .models import EnumerationInfo
 
 # Base backoff (seconds) between crt.sh retries. A module constant so tests can
@@ -60,11 +63,61 @@ def _parse_crtsh(payload: Any, domain: str) -> set[str]:
     return found
 
 
+def _scope_names(values: list[str], domain: str) -> set[str]:
+    suffix = "." + domain
+    return {name for raw in values if (name := raw.lower().strip().removeprefix("*."))
+            and re.fullmatch(r"[a-z0-9.-]+", name)
+            and (name == domain or name.endswith(suffix))}
+
+
+async def _certspotter(domain: str, fetcher: Fetcher) -> set[str]:
+    url = (f"https://api.certspotter.com/v1/issuances?domain={domain}"
+           "&include_subdomains=true&expand=dns_names")
+    response = await fetcher.get(url)
+    payload = _try_json(response.text) if response.status == 200 else None
+    if not isinstance(payload, list):
+        return set()
+    return _scope_names([name for item in payload if isinstance(item, dict)
+                         for name in (item.get("dns_names") or []) if isinstance(name, str)], domain)
+
+
+async def _wayback(domain: str, fetcher: Fetcher) -> set[str]:
+    url = (f"https://web.archive.org/cdx/search/cdx?url={domain}"
+           "&matchType=domain&output=json&fl=original&collapse=urlkey&limit=5000")
+    response = await fetcher.get(url)
+    payload = _try_json(response.text) if response.status == 200 else None
+    if not isinstance(payload, list):
+        return set()
+    urls = [row[0] for row in payload if isinstance(row, list) and row and isinstance(row[0], str)]
+    return _scope_names([urlsplit(url).hostname or "" for url in urls], domain)
+
+
+PASSIVE_SOURCES = {"certspotter": _certspotter, "wayback": _wayback}
+
+
+async def _subfinder(domain: str) -> set[str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "subfinder", "-d", domain, "-silent", "-duc", "-rl", "2",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError:
+        return set()
+    try:
+        output, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        return set()
+    return _scope_names(output[:2_000_000].decode(errors="replace").splitlines(), domain)
+
+
 async def enumerate_subdomains(
     domain: str,
     fetcher: Fetcher,
     active_dns: bool = False,
     wordlist: list[str] | None = None,
+    use_subfinder: bool = False,
 ) -> tuple[list[str], EnumerationInfo]:
     """Enumerate subdomains of ``domain``.
 
@@ -95,6 +148,15 @@ async def enumerate_subdomains(
             break
         if attempt < 3:
             await asyncio.sleep(CRTSH_RETRY_BACKOFF * (attempt + 1))
+
+    for name, source in PASSIVE_SOURCES.items():
+        found = await source(domain, fetcher)
+        if found:
+            hosts |= found
+            sources.append(name)
+    if use_subfinder and shutil.which("subfinder"):
+        hosts |= await _subfinder(domain)
+        sources.append("subfinder")
 
     # --- Active: DNS brute force (opt-in) ---
     if active_dns:
@@ -141,23 +203,37 @@ async def _dns_brute(domain: str, words: list[str]) -> set[str]:
     return found
 
 
-async def filter_live(hosts: list[str], fetcher: Fetcher) -> list[str]:
-    """Return reachable URLs for ``hosts``, preferring https over http.
+async def probe_live(
+    hosts: list[str], fetcher: Fetcher, max_probes: int = 100,
+    preferred_host: str | None = None,
+) -> list[tuple[str, FetchResponse]]:
+    """Return reachable URLs and their first responses, preferring HTTPS.
 
     A host is live if a request to it returns any status (not None).
     Concurrency is handled by the fetcher's internal semaphore.
     """
 
-    async def _probe(host: str) -> str | None:
+    async def _probe(host: str) -> tuple[str, FetchResponse] | None:
         https = f"https://{host}"
         resp = await fetcher.get(https)
         if resp.status is not None:
-            return https
+            return https, resp
         http = f"http://{host}"
         resp = await fetcher.get(http)
         if resp.status is not None:
-            return http
+            return http, resp
         return None
 
-    results = await asyncio.gather(*(_probe(h) for h in hosts))
-    return [url for url in results if url is not None]
+    ordered = ([preferred_host] + [h for h in hosts if h != preferred_host]
+               if preferred_host in hosts else hosts)
+    candidates = ordered[:max_probes] if max_probes > 0 else ordered
+    results = await asyncio.gather(*(_probe(h) for h in candidates))
+    return [item for item in results if item is not None]
+
+
+async def filter_live(
+    hosts: list[str], fetcher: Fetcher, max_probes: int = 100,
+    preferred_host: str | None = None,
+) -> list[str]:
+    """Compatibility wrapper returning URL strings only."""
+    return [url for url, _ in await probe_live(hosts, fetcher, max_probes, preferred_host)]

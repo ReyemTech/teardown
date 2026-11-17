@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from teardown.http_client import FetchResponse
 from teardown.models import CspInfo, HttpInfo
+from teardown.safety import safe_headers, safe_url
+import re
+from html import unescape
 
 # CSP directives that name hosts the app talks to (the intel goldmine).
 _CSP_HOST_DIRECTIVES = (
@@ -53,7 +56,7 @@ def _lower_headers(headers: dict[str, str]) -> dict[str, str]:
 
 def parse_headers(resp: FetchResponse) -> HttpInfo:
     """Extract server, powered-by, security posture, and cache signals."""
-    headers = _lower_headers(resp.headers or {})
+    headers = safe_headers(_lower_headers(resp.headers or {}))
 
     security: dict[str, object] = {}
     if "strict-transport-security" in headers:
@@ -77,14 +80,25 @@ def parse_headers(resp: FetchResponse) -> HttpInfo:
     if "age" in headers:
         cache["age"] = headers["age"]
 
+    title_match = re.search(r"<title\b[^>]*>(.*?)</title\s*>", resp.text or "", re.I | re.S)
+    title = unescape(re.sub(r"\s+", " ", title_match.group(1)).strip())[:200] if title_match else None
+    cdn = ("cloudflare" if "cf-ray" in headers or "cf-cache-status" in headers else
+           "fastly" if "x-served-by" in headers and "fastly" in headers.get("via", "").lower() else
+           "cloudfront" if "x-amz-cf-id" in headers else
+           "akamai" if "x-akamai-transformed" in headers else None)
+
     return HttpInfo(
         status=resp.status,
-        final_url=resp.final_url,
+        final_url=safe_url(resp.final_url),
         server=headers.get("server"),
         powered_by=headers.get("x-powered-by"),
         security_headers=security,
         cache=cache,
         all_headers=headers,
+        title=title,
+        status_chain=resp.status_chain or ([resp.status] if resp.status is not None else []),
+        tls=resp.tls,
+        cdn=cdn,
     )
 
 
@@ -123,7 +137,7 @@ def parse_csp(headers: dict[str, str]) -> CspInfo:
     Note: the signature only receives headers, so the "site's own host" cannot
     be known here; self-references are already excluded via the 'self' keyword.
     """
-    headers = _lower_headers(headers or {})
+    headers = safe_headers(_lower_headers(headers or {}))
     raw = headers.get("content-security-policy") or headers.get(
         "content-security-policy-report-only"
     )

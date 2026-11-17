@@ -17,6 +17,7 @@ from .models import (
     OpsecFinding,
     Severity,
 )
+from .safety import registrable_domain, source_map_url
 
 # A dotted version number ("nginx/1.18.0", "PHP/8.1") or a "/<digit>" suffix.
 _VERSION_RE = re.compile(r"\d+\.\d+|/\s*\d")
@@ -174,7 +175,7 @@ def analyze_host(host: HostTeardown) -> list[OpsecFinding]:
                         "internal paths). Vendor libraries served first-party leak the "
                         "library's source; app bundles leak your own."
                     ),
-                    evidence_url=f"{bundle.url}.map",
+                    evidence_url=source_map_url(bundle.url),
                 )
             )
 
@@ -308,13 +309,20 @@ def analyze_host(host: HostTeardown) -> list[OpsecFinding]:
                 )
             )
 
+    for finding in findings:
+        if finding.title == "Framework / CMS fingerprintable" and host.detections:
+            finding.confidence = max(item.confidence for item in host.detections)
+            finding.evidence = sorted({signal for item in host.detections
+                                       for signal in item.evidence})[:8]
+        elif finding.title == "Third-party services enumerated":
+            finding.evidence = sorted({tp.evidence or tp.name for tp in host.third_parties})[:8]
+        elif finding.evidence_url:
+            finding.evidence = [finding.evidence_url]
     return findings
 
 
 def _registrable(hostname: str) -> str:
-    """Naive registrable domain: last two labels. Good enough for first-party checks."""
-    labels = (hostname or "").split(".")
-    return ".".join(labels[-2:]) if len(labels) >= 2 else (hostname or "")
+    return registrable_domain(hostname or "")
 
 
 def _is_first_party(bundle_url: str, host_name: str) -> bool:
@@ -372,6 +380,7 @@ def _detect_hosting(host: HostTeardown) -> list[str]:
 def build_aggregate(hosts: list[HostTeardown]) -> Aggregate:
     """Union tech stack + third parties across hosts and collect critical findings."""
     frameworks: set[str] = set()
+    detections: set[str] = set()
     cms: set[str] = set()
     servers: set[str] = set()
     hosting: set[str] = set()
@@ -379,6 +388,7 @@ def build_aggregate(hosts: list[HostTeardown]) -> Aggregate:
     criticals: list[OpsecFinding] = []
 
     for host in hosts or []:
+        detections.update(item.name for item in (host.detections or []) if item.name)
         for fw in host.frameworks or []:
             if fw:
                 frameworks.add(fw)
@@ -405,6 +415,7 @@ def build_aggregate(hosts: list[HostTeardown]) -> Aggregate:
     }
     return Aggregate(
         tech_stack_union=tech_stack_union,
+        detections_union=sorted(detections),
         third_parties_union=sorted(third_parties),
         critical_findings=criticals,
     )

@@ -167,7 +167,7 @@ async def test_wordpress_user_enumeration_detected():
         ]
     )
     responses = {
-        f"{BASE}/wp-json/": ok(f"{BASE}/wp-json/", json.dumps({"name": "Site"})),
+        f"{BASE}/wp-json/": ok(f"{BASE}/wp-json/", json.dumps({"name": "Site", "namespaces": ["wp/v2"]})),
         f"{BASE}/wp-json/wp/v2/users": ok(f"{BASE}/wp-json/wp/v2/users", users),
     }
     surface = await discover_api(BASE, FakeFetcher(responses))
@@ -181,7 +181,7 @@ async def test_wordpress_json_present_but_users_locked_down():
     # wp-json present, but users endpoint returns a 401 error object (not a list).
     err = json.dumps({"code": "rest_cannot_access", "message": "unauthorized"})
     responses = {
-        f"{BASE}/wp-json/": ok(f"{BASE}/wp-json/", json.dumps({"name": "Site"})),
+        f"{BASE}/wp-json/": ok(f"{BASE}/wp-json/", json.dumps({"name": "Site", "namespaces": ["wp/v2"]})),
         f"{BASE}/wp-json/wp/v2/users": FetchResponse(
             url=f"{BASE}/wp-json/wp/v2/users",
             final_url=f"{BASE}/wp-json/wp/v2/users",
