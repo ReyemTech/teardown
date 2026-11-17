@@ -22,33 +22,14 @@ from teardown.safety import redact_key, safe_url, source_map_url
 # Framework detection
 # --------------------------------------------------------------------------- #
 
-# label -> patterns (any match wins), evaluated case-insensitively.
-_FRAMEWORK_SIGNATURES: list[tuple[str, tuple[str, ...]]] = [
-    ("next.js", ("__NEXT_DATA__", "/_next/", "next/dist")),
-    ("nuxt", ("__NUXT__", "/_nuxt/", "window.__NUXT")),
-    ("gatsby", ("___gatsby", "gatsby-", "window.___gatsby")),
-    ("remix", ("__remixContext", "__remixManifest", "remix-run")),
-    ("astro", ("astro-island", "astro-", "data-astro")),
-    ("svelte", ("svelte", "__svelte", "data-svelte")),
-    ("vue", ("__vue__", "data-v-", "vue.js", "vue@", "__VUE")),
-    ("angular", ("ng-version", "ng-app", "angular.", "_nghost", "_ngcontent")),
-    ("react", ("data-reactroot", "data-reactid", "react.", "react-dom", "_reactrootcontainer")),
-    ("vite", ("/@vite/", "/assets/index-", "vite/client", "__vite")),
-    ("webpack", ("webpackjsonp", "webpackchunk", "__webpack_require__")),
-    ("elementor", ("elementor", "/elementor/")),
-]
-
-
 def detect_frameworks(html: str) -> list[str]:
-    """Detect front-end frameworks/build tools from page markup. Deduped, lowercase."""
-    text = html or ""
-    low = text.lower()
-    found: list[str] = []
-    for label, patterns in _FRAMEWORK_SIGNATURES:
-        if any(p.lower() in low for p in patterns):
-            if label not in found:
-                found.append(label)
-    return found
+    """Compatibility view of data-driven framework detections from HTML."""
+    from teardown.fingerprints import detect_technologies, framework_names, load_fingerprints
+
+    framework_categories = {"js-framework", "backend-framework", "ui-framework", "static-site-generator", "build-tool"}
+    definitions = [fp for fp in load_fingerprints()
+                   if framework_categories.intersection(fp.get("categories", []))]
+    return framework_names(detect_technologies(html, {}, "", definitions))
 
 
 # --------------------------------------------------------------------------- #

@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Livewire",
+    "categories": ["backend-framework", "js-framework"],
+    "website": "https://livewire.laravel.com",
+    "html": ["wire:id=", "wire:snapshot=", "wire:initial-data=", "livewire\\.find\\("],
+    "scriptSrc": ["/livewire/livewire\\.js", "/livewire/update"],
+    "implies": ["Laravel"]
+  }
+]

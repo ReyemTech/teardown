@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 class Severity(str, Enum):
@@ -33,6 +33,10 @@ class HttpInfo:
     # e.g. {"cf_cache_status": "HIT", "x_vercel_cache": "MISS", ...}
     cache: dict[str, Any] = field(default_factory=dict)
     all_headers: dict[str, str] = field(default_factory=dict)
+    title: str | None = None
+    status_chain: list[int] = field(default_factory=list)
+    tls: dict[str, str] = field(default_factory=dict)
+    cdn: str | None = None
 
 
 @dataclass
@@ -116,6 +120,16 @@ class OpsecFinding:
     title: str
     detail: str
     evidence_url: str | None = None
+    confidence: int = 100
+    evidence: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Detection:
+    name: str
+    categories: list[str] = field(default_factory=list)
+    confidence: int = 0
+    evidence: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -127,6 +141,7 @@ class HostTeardown:
     http: HttpInfo = field(default_factory=HttpInfo)
     csp: CspInfo = field(default_factory=CspInfo)
     frameworks: list[str] = field(default_factory=list)
+    detections: list[Detection] = field(default_factory=list)
     cms: CmsInfo = field(default_factory=CmsInfo)
     bundles: list[Bundle] = field(default_factory=list)
     api_surface: ApiSurface = field(default_factory=ApiSurface)
@@ -146,6 +161,7 @@ class EnumerationInfo:
 @dataclass
 class Aggregate:
     tech_stack_union: dict[str, list[str]] = field(default_factory=dict)
+    detections_union: list[str] = field(default_factory=list)
     third_parties_union: list[str] = field(default_factory=list)
     critical_findings: list[OpsecFinding] = field(default_factory=list)
 

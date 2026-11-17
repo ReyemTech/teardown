@@ -49,11 +49,25 @@ def safe_url(url: str | None) -> str | None:
 
 def safe_headers(headers: dict[str, str]) -> dict[str, str]:
     return {
-        key: "[REDACTED]" if _SENSITIVE.search(key) else (
-            safe_url(value) if key.lower() == "location" else safe_text(value)
+        key: _cookie_names(value) if key.lower() == "set-cookie" else (
+            "[REDACTED]" if _SENSITIVE.search(key) else (
+                safe_url(value) if key.lower() == "location" else safe_text(value)
+            )
         )
         for key, value in headers.items()
     }
+
+
+def _cookie_names(value: str) -> str:
+    """Retain cookie names for fingerprints without values or attributes."""
+    names = []
+    for part in value.split(","):
+        first = part.split(";", 1)[0].strip()
+        if "=" in first:
+            name = first.partition("=")[0].strip()
+            if re.fullmatch(r"[A-Za-z0-9_.$-]{1,128}", name):
+                names.append(f"{name}=[REDACTED]")
+    return "; ".join(names) or "[REDACTED]"
 
 
 def safe_text(value: str) -> str:

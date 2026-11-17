@@ -38,6 +38,8 @@ class FetchResponse:
     headers: dict[str, str] = field(default_factory=dict)  # lower-cased keys
     text: str = ""
     error: str | None = None       # populated on failure
+    status_chain: list[int] = field(default_factory=list)
+    tls: dict[str, str] = field(default_factory=dict)
 
 
 class Fetcher(Protocol):
@@ -80,12 +82,18 @@ class HttpClient:
         root_domain: str | None = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         transport: httpx.AsyncBaseTransport | None = None,
+        cache_dir: str | None = None,
     ) -> None:
         self._sem = asyncio.Semaphore(concurrency)
         self._rl = _RateLimiter(rate_per_sec)
         self._retries = retries
         self._root_domain = root_domain
         self._max_response_bytes = max_response_bytes
+        if cache_dir:
+            from .cache import ResponseCache
+            self._cache = ResponseCache(cache_dir)
+        else:
+            self._cache = None
         self._client = httpx.AsyncClient(
             follow_redirects=False,
             timeout=timeout,
@@ -109,22 +117,29 @@ class HttpClient:
             if parts.scheme not in ("http", "https"):
                 return False
             if crtsh:
-                return parts.scheme == "https" and parts.hostname == "crt.sh"
+                return parts.scheme == "https" and parts.hostname in {
+                    "crt.sh", "api.certspotter.com", "web.archive.org"}
             return self._root_domain is None or in_scope(candidate, self._root_domain)
 
-        crtsh = urlsplit(url).hostname == "crt.sh"
+        crtsh = urlsplit(url).hostname in {"crt.sh", "api.certspotter.com", "web.archive.org"}
         if not allowed(url, crtsh=crtsh):
             return FetchResponse(url=safe_url(url) or "", final_url=safe_url(url) or "",
                                  status=None, error="out-of-scope request blocked")
+        if method.upper() == "GET" and self._cache is not None:
+            hit = self._cache.get(url)
+            if hit is not None:
+                return hit
         last_err: str | None = None
         for attempt in range(self._retries + 1):
             current = url
+            chain: list[int] = []
             try:
                 for _ in range(6):
                     async with self._sem:
                         await self._rl.wait()
                         async with self._client.stream(method, current, **kwargs) as resp:
                             if resp.is_redirect and "location" in resp.headers:
+                                chain.append(resp.status_code)
                                 destination = urljoin(current, resp.headers["location"])
                                 if not allowed(destination, crtsh=crtsh):
                                     return FetchResponse(url=safe_url(url) or "",
@@ -136,6 +151,25 @@ class HttpClient:
                                     kwargs.pop("json", None)
                                 continue
                             body = bytearray()
+                            tls: dict[str, str] = {}
+                            stream = resp.extensions.get("network_stream")
+                            ssl_object = stream.get_extra_info("ssl_object") if stream else None
+                            if ssl_object:
+                                tls["version"] = ssl_object.version() or ""
+                                cipher = ssl_object.cipher()
+                                if cipher:
+                                    tls["cipher"] = cipher[0]
+                                cert = ssl_object.getpeercert() or {}
+                                if cert.get("notAfter"):
+                                    tls["not_after"] = cert["notAfter"]
+                                for part in cert.get("subject", ()):
+                                    for key, value in part:
+                                        if key == "commonName":
+                                            tls["common_name"] = value
+                                for part in cert.get("issuer", ()):
+                                    for key, value in part:
+                                        if key == "commonName":
+                                            tls["issuer_common_name"] = value
                             truncated = False
                             async for chunk in resp.aiter_bytes():
                                 room = self._max_response_bytes - len(body)
@@ -143,14 +177,19 @@ class HttpClient:
                                 if len(chunk) > room:
                                     truncated = True
                                     break
-                            return FetchResponse(
+                            result = FetchResponse(
                                 url=safe_url(url) or "", final_url=safe_url(str(resp.url)) or "",
                                 status=resp.status_code,
                                 headers=safe_headers({k.lower(): v for k, v in resp.headers.items()}),
                                 text=body.decode(resp.encoding or "utf-8", errors="replace"),
                                 error=(f"response body truncated at {self._max_response_bytes} bytes"
                                        if truncated else None),
+                                status_chain=chain + [resp.status_code],
+                                tls=tls,
                             )
+                            if method.upper() == "GET" and self._cache is not None:
+                                self._cache.put(url, result)
+                            return result
                 return FetchResponse(url=safe_url(url) or "", final_url=safe_url(current) or "",
                                      status=None, error="redirect limit exceeded")
             except Exception as exc:  # noqa: BLE001 - never raise to collectors

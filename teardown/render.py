@@ -113,6 +113,10 @@ def render_host_markdown(host: HostTeardown) -> str:
         bits.append(f"HTTP {host.http.status}")
     if host.http.final_url:
         bits.append(safe_url(host.http.final_url) or "")
+    if host.http.title:
+        bits.append(host.http.title)
+    if host.http.cdn:
+        bits.append(f"CDN: {host.http.cdn}")
     lines.append("_" + " · ".join(bits) + "_")
     lines.append("")
 
@@ -130,6 +134,16 @@ def render_host_markdown(host: HostTeardown) -> str:
         cms_val = host.cms.type + (f" {host.cms.version}" if host.cms.version else "")
         lines.append(f"| CMS | {cms_val} |")
     lines.append("")
+
+    if host.detections:
+        lines.append("**Technology evidence**")
+        lines.append("")
+        lines.append("| Technology | Confidence | Evidence |")
+        lines.append("|------------|------------|----------|")
+        for item in host.detections:
+            evidence = ", ".join(item.evidence[:3]).replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {item.name} | {item.confidence}% | {evidence or '—'} |")
+        lines.append("")
 
     # API surface
     lines.append("**API surface**")
