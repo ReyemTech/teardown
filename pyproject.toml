@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "teardown"
+name = "tech-teardown"
 version = "0.1.0"
 description = "Passive web-app architecture reconnaissance with subdomain fan-out, emitting an agent-readable JSON contract."
 readme = "README.md"
