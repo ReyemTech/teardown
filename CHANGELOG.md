@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-11-17)
+
+### Features
+
+- Expose hosting evidence and retain source maps
+  ([`2796b0c`](https://github.com/ReyemTech/teardown/commit/2796b0c8a1d22d0991927908c7034ebcf72e4f18))
+
+
 ## v0.4.0 (2026-11-17)
 
 ### Features
