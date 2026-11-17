@@ -15,7 +15,7 @@ signals only** — no auth, no exploitation. Given a domain it:
    REST/GraphQL/OpenAPI/WordPress API surface, third-party fingerprints, redacted
    secret leaks, OPSEC findings.
 4. Emits an **agent-readable JSON contract** (`ScanResult`/`HostTeardown`, schema
-   1.1) plus a vault-compatible markdown rendering and cross-run diff.
+   1.2) plus a vault-compatible markdown rendering and cross-run diff.
 
 The guiding split: **deterministic collection (this code) vs. interpretation (the
 agent that reads the JSON).** Keep narrative/judgment out of the tool; it produces
@@ -28,6 +28,7 @@ teardown/
   models.py          # THE contract — dataclasses + SCHEMA_VERSION. Change carefully.
   http_client.py     # async httpx client + Fetcher protocol + FetchResponse
   fingerprints.py   # data-driven matcher + optional upstream importer
+  scan_modules.py   # ordered, injectable host collectors
   data/             # bundled MIT fingerprints and attribution
   cache.py          # sanitized daily response cache
   collectors/
@@ -90,8 +91,10 @@ on PyPI).
 - **New OPSEC finding:** add the rule in `analyze.py::analyze_host`, pick the right
   `Severity`, cite the actual value in `detail`, set `evidence_url` when derivable,
   and add a test that it fires on the signal AND does NOT fire on a clean host.
-- **New collector:** take a `Fetcher`, return model objects, wire it in
-  `cli.py::teardown_host`, and give it an offline fake-Fetcher test.
+- **New collector:** implement a `ScanModule` over `ScanContext`, use its injected
+  `Fetcher`, and add it to `scan_modules.py` or register it in-process. Return a
+  redacted mapping for the namespaced `HostTeardown.extensions` payload and
+  give it an offline fake-Fetcher test.
 - **Schema change:** edit `models.py`, bump `SCHEMA_VERSION`, and update
   `render.py` + any consumer. The JSON is a contract other agents read — treat a
   field rename as breaking.

@@ -84,6 +84,27 @@ def test_legacy_framework_view_includes_build_tools():
     assert "vite" in detect_frameworks('<script src="/@vite/client"></script>')
 
 
+@pytest.mark.parametrize("asset", [
+    '<script src="/_astro/page.B1D-nYk3.js"></script>',
+    '<link rel="stylesheet" href="/_astro/index.DpanXZtb.css">',
+])
+def test_astro_detected_from_built_asset_paths(asset):
+    detections = detect_technologies(asset, {}, "https://stint.reyem.tech")
+    astro = next(item for item in detections if item.name == "Astro")
+    assert astro.confidence >= 80
+    assert "astro" in framework_names(detections)
+
+
+def test_stint_style_headers_identify_fastly_without_cloudflare():
+    headers = {"server": "GitHub.com", "x-fastly-request-id": "request-id",
+               "x-served-by": "cache-yto123", "via": "1.1 varnish"}
+    info = parse_headers(response("https://stint.reyem.tech", headers=headers))
+    detections = detect_technologies("", headers, "https://stint.reyem.tech")
+    assert info.cdn == "fastly"
+    assert "Fastly" in {item.name for item in detections}
+    assert "Cloudflare" not in {item.name for item in detections}
+
+
 def test_external_import_is_unassisted_and_local(monkeypatch, tmp_path):
     payload = json.dumps({"ExampleTech": {"cats": [12], "html": "example\\;confidence:50"}})
 
@@ -254,7 +275,7 @@ async def test_run_scan_reuses_liveness_page_and_serializes_detections(monkeypat
     host = to_dict(result)["hosts"][0]
     assert host["http"]["title"] == "Example"
     assert "Livewire" in {item["name"] for item in host["detections"]}
-    assert result.schema_version == "1.1"
+    assert result.schema_version == "1.2"
     assert "Livewire" in result.aggregate.detections_union
 
 

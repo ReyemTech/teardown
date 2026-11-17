@@ -254,15 +254,16 @@ async def test_source_map_probe_preserves_bundle_query_position():
 
 @pytest.mark.asyncio
 async def test_collection_error_does_not_store_exception_text(monkeypatch):
-    def failing_parser(_html):
+    def failing_parser(_html, _headers, _url):
         raise ValueError("verysecret")
 
-    monkeypatch.setattr("teardown.cli.detect_frameworks", failing_parser)
+    monkeypatch.setattr("teardown.scan_modules.detect_technologies", failing_parser)
     url = "https://example.com"
     fetcher = FakeFetcher({url: FetchResponse(url=url, final_url=url, status=200)})
     host = await teardown_host(url, fetcher)
     assert "verysecret" not in repr(host)
-    assert host.errors == ["collection error: ValueError"]
+    assert host.errors == ["module fingerprints error: ValueError"]
+    assert host.http.status == 200
 
 
 @pytest.mark.asyncio

@@ -334,6 +334,7 @@ def _redact(value: str) -> str:
 # type, regex. Group 1 (if present) is the sensitive value, else group 0.
 _SECRET_SIGNATURES: list[tuple[str, re.Pattern]] = [
     ("stripe_pk", re.compile(r"\b(pk_(?:live|test)_[A-Za-z0-9]{8,})\b")),
+    ("stripe_secret", re.compile(r"\b((?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,})\b")),
     (
         "segment_write_key",
         re.compile(r"analytics\.load\(\s*[\"']([A-Za-z0-9]{10,})[\"']"),
@@ -360,11 +361,22 @@ _SECRET_SIGNATURES: list[tuple[str, re.Pattern]] = [
         "generic_secret",
         re.compile(
             r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|token)"
-            r"[\"']?\s*[:=]\s*[\"']([A-Za-z0-9_\-]{16,})[\"']",
+            r"[\"']?\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{16,})[\"']?",
             re.IGNORECASE,
         ),
     ),
 ]
+
+
+def redact_secret_values(text: str) -> str:
+    """Remove recognized secret values from arbitrary module output."""
+    spans: list[tuple[int, int]] = []
+    for _, pattern in _SECRET_SIGNATURES:
+        for match in pattern.finditer(text):
+            spans.append(match.span(1) if match.groups() else match.span())
+    for start, end in sorted(set(spans), reverse=True):
+        text = text[:start] + "[REDACTED]" + text[end:]
+    return text
 
 
 def detect_secret_leaks(text: str, source_url: str) -> list[SecretLeak]:

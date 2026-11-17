@@ -1,5 +1,10 @@
 [
   {
+    "name": "Astro",
+    "scriptSrc": ["(?:^|/)_astro/[^?#]+\\.js(?:[?#]|$)"],
+    "stylesheetSrc": ["(?:^|/)_astro/[^?#]+\\.css(?:[?#]|$)"]
+  },
+  {
     "name": "Livewire",
     "categories": ["backend-framework", "js-framework"],
     "website": "https://livewire.laravel.com",
