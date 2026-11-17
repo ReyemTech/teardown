@@ -8,7 +8,7 @@ from typing import Any
 
 _VOLATILE_HEADERS = {"date", "age", "expires", "last-modified", "etag", "set-cookie",
                      "cf-ray", "x-request-id", "x-amz-cf-id", "report-to", "nel"}
-_EXCLUDED = {"scanned_at", "errors"}
+_EXCLUDED = {"scanned_at", "errors", "local_path"}
 
 
 def _normalized(value: Any) -> Any:

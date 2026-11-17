@@ -1,0 +1,11 @@
+[
+  {"suffix": "onporter.run", "name": "Porter", "role": "platform", "confidence": 95},
+  {"suffix": "onrender.com", "name": "Render", "role": "platform", "confidence": 95},
+  {"regex": "(?:^|\\.)elb\\.[a-z0-9-]+\\.amazonaws\\.com$", "name": "AWS Elastic Load Balancing", "role": "load_balancer", "confidence": 95},
+  {"suffix": "cdn.cloudflare.net", "name": "Cloudflare", "role": "cdn", "confidence": 95},
+  {"suffix": "cloudfront.net", "name": "AWS CloudFront", "role": "cdn", "confidence": 95},
+  {"suffix": "vercel-dns.com", "name": "Vercel", "role": "platform", "confidence": 90},
+  {"suffix": "netlify.app", "name": "Netlify", "role": "platform", "confidence": 90},
+  {"suffix": "herokuapp.com", "name": "Heroku", "role": "platform", "confidence": 90},
+  {"suffix": "click.sendgrid.net", "name": "SendGrid", "role": "email_tracking", "confidence": 90}
+]

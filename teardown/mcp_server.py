@@ -10,7 +10,8 @@ from .history import HistoryStore
 from .models import to_dict
 
 
-def create_server(*, history_enabled: bool = True, data_dir: str | None = None):
+def create_server(*, history_enabled: bool = True, artifacts_enabled: bool = True,
+                  data_dir: str | None = None):
     try:
         from fastmcp import FastMCP
     except ImportError as exc:
@@ -21,7 +22,8 @@ def create_server(*, history_enabled: bool = True, data_dir: str | None = None):
     async def stored_scan(target: str, **kwargs):
         context = HistoryStore(data_dir) if history_enabled else nullcontext(None)
         with context as history:
-            return await run_scan(target, data_dir=data_dir, history=history, **kwargs)
+            return await run_scan(target, data_dir=data_dir, history=history,
+                                  save_artifacts=artifacts_enabled, **kwargs)
 
     @server.tool
     async def teardown_host(url: str) -> dict:
@@ -80,8 +82,12 @@ def main(argv: list[str] | None = None) -> None:
                         help="Data home for cache and SQLite history (default: ~/.teardown).")
     parser.add_argument("--no-history", action="store_true",
                         help="Do not save MCP scan results to SQLite history.")
+    parser.add_argument("--no-artifacts", action="store_true",
+                        help="Do not retain first-party bundles with exposed source maps.")
     args = parser.parse_args(argv)
-    server = create_server(history_enabled=not args.no_history, data_dir=args.data_dir)
+    server = create_server(history_enabled=not args.no_history,
+                           artifacts_enabled=not args.no_artifacts,
+                           data_dir=args.data_dir)
     if args.transport == "http":
         server.run(transport="http", host=args.host, port=args.port)
     else:

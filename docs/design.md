@@ -60,7 +60,7 @@ findings; richer narrative judgment is left to whatever agent reads the JSON.
 
 ```
 teardown/
-  models.py          # Versioned dataclasses — THE CONTRACT (schema_version 1.0)
+  models.py          # Versioned dataclasses — THE CONTRACT (schema_version 1.5)
   http_client.py     # Async httpx client: rate-limited, bounded, polite UA, retries.
                      #   Exposes a Fetcher protocol injected into collectors.
   collectors/

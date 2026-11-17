@@ -19,6 +19,8 @@ from teardown.models import (
     SecretLeak,
     ThirdParty,
     WordPressInfo,
+    HostingEvidence,
+    ArtifactRef,
 )
 
 
@@ -93,6 +95,44 @@ def test_all_top_level_sections_present():
     assert "## Third-Party Dependencies" in md
     assert "## Per-Host Detail" in md
     assert "## Key Findings" in md
+
+
+def test_tldr_and_action_list_are_deterministic():
+    result = _build_result()
+    result.hosts[0].network.providers = [
+        HostingEvidence("Render", "platform", 95, "app.example.com.onrender.com"),
+    ]
+    result.aggregate = build_aggregate(result.hosts)
+    md = render_markdown(result)
+    assert md.index("## TL;DR") < md.index("## Overview")
+    assert "1 of 2 hosts reachable" in md
+    assert "Render" in md.split("## TL;DR", 1)[1].split("## Overview", 1)[0]
+    todo = md.split("## To Do", 1)[1]
+    assert "app.example.com" in todo
+    assert "Review the exposed first-party source map" in todo
+    assert "Analytics / tracking keys visible" not in todo
+    assert "Framework / CMS fingerprintable" not in todo
+    assert md.rstrip().endswith(todo.rstrip())
+
+
+def test_host_exposes_hosting_evidence_and_artifact_paths():
+    result = _build_result()
+    host = result.hosts[0]
+    host.network.providers = [HostingEvidence("Porter", "platform", 95, "web.onporter.run")]
+    host.bundles[0].source_map_sources = 3
+    host.bundles[0].source_artifact = ArtifactRef("/tmp/abc.js", "a" * 64, 100)
+    host.bundles[0].sourcemap_artifact = ArtifactRef("/tmp/def.map", "b" * 64, 200)
+    section = render_host_markdown(host)
+    assert "Porter" in section and "web.onporter.run" in section
+    assert "/tmp/abc.js" in section and "/tmp/def.map" in section
+    assert "3 original sources" in section
+
+
+def test_map_link_preserves_query_position():
+    host = _build_result().hosts[0]
+    host.bundles[0].url = "https://app.example.com/app.js?v=1"
+    section = render_host_markdown(host)
+    assert "https://app.example.com/app.js.map?v=1" in section
 
 
 def test_inventory_table_lists_hosts_and_counts():

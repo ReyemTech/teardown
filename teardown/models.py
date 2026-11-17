@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-SCHEMA_VERSION = "1.4"
+SCHEMA_VERSION = "1.5"
 
 
 class Severity(str, Enum):
@@ -62,6 +62,17 @@ class Bundle:
     type: str = "js"                 # "js" | "css"
     has_sourcemap: bool = False
     interesting_tokens: list[str] = field(default_factory=list)
+    source_map_sources: int = 0
+    source_artifact: ArtifactRef | None = None
+    sourcemap_artifact: ArtifactRef | None = None
+
+
+@dataclass
+class ArtifactRef:
+    local_path: str
+    sha256: str
+    bytes: int
+    redacted: bool = True
 
 
 @dataclass
@@ -167,10 +178,19 @@ class NetworkAddress:
 
 
 @dataclass
+class HostingEvidence:
+    name: str
+    role: str
+    confidence: int
+    evidence: str
+
+
+@dataclass
 class NetworkInfo:
     observation: str = "unknown"
     dns: DnsObservation = field(default_factory=DnsObservation)
     addresses: list[NetworkAddress] = field(default_factory=list)
+    providers: list[HostingEvidence] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 

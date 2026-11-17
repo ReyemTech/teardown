@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import re
 import json
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
+from teardown.artifacts import ArtifactStore
 from teardown.http_client import Fetcher
 from teardown.models import Bundle, CmsInfo, SecretLeak, ThirdParty
-from teardown.safety import redact_key, safe_url, source_map_url
+from teardown.safety import redact_key, registrable_domain, safe_url, source_map_url
 
 # --------------------------------------------------------------------------- #
 # Framework detection
@@ -416,7 +417,8 @@ _INTERESTING_RE = re.compile(
 
 
 async def enrich_bundles(
-    bundles: list[Bundle], fetcher: Fetcher, max_bundles: int = 8
+    bundles: list[Bundle], fetcher: Fetcher, max_bundles: int = 8,
+    artifact_store: ArtifactStore | None = None, host_name: str | None = None,
 ) -> list[Bundle]:
     """For up to max_bundles JS bundles: probe for sourcemaps and scan for tokens.
 
@@ -434,6 +436,7 @@ async def enrich_bundles(
         try:
             # 1. Sourcemap probe.
             map_resp = await fetcher.get(source_map_url(bundle.url))
+            source_map = None
             if map_resp.status == 200:
                 try:
                     source_map = json.loads(map_resp.text)
@@ -445,10 +448,21 @@ async def enrich_bundles(
                     and isinstance(source_map.get("sources"), list)
                     and isinstance(source_map.get("mappings"), str)
                 )
+                if bundle.has_sourcemap:
+                    bundle.source_map_sources = len(source_map["sources"])
+
+            bundle_host = urlsplit(bundle.url).hostname or ""
+            first_party = bool(host_name and bundle_host and
+                               registrable_domain(bundle_host) == registrable_domain(host_name))
+            save = bool(artifact_store and bundle.has_sourcemap and first_party)
+            if save and source_map is not None:
+                bundle.sourcemap_artifact = artifact_store.save_map(source_map)
 
             # 2. Fetch + scan the bundle body.
             body_resp = await fetcher.get(bundle.url)
             body = body_resp.text or ""
+            if save and body_resp.status == 200 and body:
+                bundle.source_artifact = artifact_store.save_source(body)
             if not body:
                 continue
 

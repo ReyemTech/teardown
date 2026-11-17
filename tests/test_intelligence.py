@@ -275,7 +275,7 @@ async def test_run_scan_reuses_liveness_page_and_serializes_detections(monkeypat
     host = to_dict(result)["hosts"][0]
     assert host["http"]["title"] == "Example"
     assert "Livewire" in {item["name"] for item in host["detections"]}
-    assert result.schema_version == "1.4"
+    assert result.schema_version == "1.5"
     assert "Livewire" in result.aggregate.detections_union
 
 
@@ -296,6 +296,18 @@ def test_diff_ignores_timestamps_and_reports_stable_changes():
     assert [c["path"] for c in result["changed_hosts"][0]["changes"]] == ["frameworks"]
 
 
+def test_diff_ignores_artifact_paths_but_tracks_hashes():
+    old = {"root_domain": "example.com", "hosts": [{"host": "example.com", "bundles": [
+        {"url": "https://example.com/app.js", "source_artifact":
+         {"local_path": "/one/a.js", "sha256": "abc", "bytes": 3}}]}]}
+    new = {"root_domain": "example.com", "hosts": [{"host": "example.com", "bundles": [
+        {"url": "https://example.com/app.js", "source_artifact":
+         {"local_path": "/two/a.js", "sha256": "abc", "bytes": 3}}]}]}
+    assert diff_results(old, new)["changed_hosts"] == []
+    new["hosts"][0]["bundles"][0]["source_artifact"]["sha256"] = "def"
+    assert diff_results(old, new)["changed_hosts"]
+
+
 def test_mcp_transport_selection(monkeypatch):
     from teardown import mcp_server
     calls = []
@@ -313,9 +325,13 @@ def test_mcp_transport_selection(monkeypatch):
     mcp_server.main(["--transport", "http", "--port", "8123"])
     mcp_server.main(["--transport", "stdio"])
     mcp_server.main(["--transport", "stdio", "--no-history", "--data-dir", "/tmp/custom"])
+    mcp_server.main(["--transport", "stdio", "--no-artifacts"])
     assert calls == [{"transport": "http", "host": "127.0.0.1", "port": 8123},
-                     {"transport": "stdio"}, {"transport": "stdio"}]
-    assert settings[-1] == {"history_enabled": False, "data_dir": "/tmp/custom"}
+                     {"transport": "stdio"}, {"transport": "stdio"},
+                     {"transport": "stdio"}]
+    assert settings[-2] == {"history_enabled": False, "artifacts_enabled": True,
+                            "data_dir": "/tmp/custom"}
+    assert settings[-1]["artifacts_enabled"] is False
 
 
 @pytest.mark.asyncio

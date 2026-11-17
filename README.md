@@ -93,6 +93,7 @@ teardown fingerprints update
 | `--cache-dir DIR` | `~/.teardown/cache/` | Daily response cache location. |
 | `--no-cache` | off | Fetch fresh responses. |
 | `--no-history` | off | Do not save the scan to SQLite history. |
+| `--no-artifacts` | off | Do not retain sanitized first-party bundle and source-map copies. |
 | `-q`, `--quiet` | off | Suppress terminal status. |
 | `-v`, `-vv` | off | Show per-host or per-module progress. |
 | `--no-color` | off | Disable terminal colors. |
@@ -113,6 +114,22 @@ the newest completed run against the preceding completed run; `--days 7` selects
 the newest completed baseline at least seven days older. Add `--json` to either
 command for machine output. `--json-only` scans are saved too; use
 `--no-history` to opt out. The data home is private to the local user on Unix.
+
+When a first-party JavaScript bundle exposes a valid source map, teardown saves
+sanitized copies of the generated JavaScript and map under
+`~/.teardown/artifacts/` (or `--data-dir DIR/artifacts/`). Files are content
+addressed, limited to 4 MB each, and private to the local user on Unix. The
+JSON bundle record and Markdown report include local paths, SHA-256 hashes, and
+the map's source count. Embedded `sourcesContent` stays in the saved map for
+inspection, with recognizable credentials redacted. If a copy is too large or
+cannot pass the secret check, the public evidence URL remains in the report.
+Use `--no-artifacts` to disable saved copies. Treat saved files as potentially
+sensitive code and inspect them locally.
+
+The Markdown report begins with a deterministic TL;DR of observed hosts,
+hosting/routing providers, frameworks and finding counts. Its final To Do list
+groups actionable findings across hosts and cites their evidence URLs. A source
+map task asks for review; exposure alone does not establish a vulnerability.
 
 The **JSON is the contract an agent reads** — one `HostTeardown` record per host
 inside a `ScanResult` rollup. Shapes are defined in `teardown/models.py`
@@ -149,6 +166,15 @@ describes a possible edge location, not the site origin; coordinates are not a
 precise server location. Unknown results remain empty. The lookup uses the
 same bounded client and daily cache as other network evidence.
 
+Schema 1.5 adds `network.providers` with evidence from known provider-owned
+CNAME targets and adds saved artifact references to first-party bundles with
+exposed maps. For example, `*.onporter.run` identifies Porter,
+`*.elb.us-east-1.amazonaws.com` identifies AWS Elastic Load Balancing, and
+`*.onrender.com` identifies Render. An ELB address alone does not establish
+Elastic Beanstalk. A Cloudflare CDN hop is shown separately from a platform
+hop; neither proves an origin IP. Provider rules are in
+[`teardown/data/cname_providers.json`](teardown/data/cname_providers.json).
+
 This product includes GeoLite Data created by MaxMind, available from
 https://www.maxmind.com. GeoLite2 data is accessed through the
 [RIPEstat MaxMind GeoLite endpoint](https://stat.ripe.net/docs/data-api/api-endpoints/maxmind-geo-lite).
@@ -171,6 +197,7 @@ Install the optional extra, then use stdio or local Streamable HTTP:
 teardown-mcp
 teardown-mcp --transport http --host 127.0.0.1 --port 8000
 teardown-mcp --no-history
+teardown-mcp --no-artifacts
 ```
 
 The HTTP endpoint is `http://127.0.0.1:8000/mcp`. The tools are
@@ -180,6 +207,8 @@ collection path. The default bind address is loopback. See
 [`.mcp.json.example`](.mcp.json.example) for a stdio registration example.
 MCP scan tools save to the same SQLite history by default. Start the server with
 `--no-history` to disable this or `--data-dir DIR` to use another data home.
+Artifact saving follows the CLI default and can be disabled at MCP startup
+with `--no-artifacts`.
 
 ## How collection behaves
 
