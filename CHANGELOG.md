@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.2.0 (2026-11-17)
+
+### Features
+
+- Add terminal progress and scan history
+  ([`889b180`](https://github.com/ReyemTech/teardown/commit/889b18075f9274d474ac49df97d00326154897a7))
+
+
 ## v0.1.2 (2026-11-17)
 
 ### Bug Fixes
