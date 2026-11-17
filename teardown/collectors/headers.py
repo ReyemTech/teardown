@@ -83,7 +83,8 @@ def parse_headers(resp: FetchResponse) -> HttpInfo:
     title_match = re.search(r"<title\b[^>]*>(.*?)</title\s*>", resp.text or "", re.I | re.S)
     title = unescape(re.sub(r"\s+", " ", title_match.group(1)).strip())[:200] if title_match else None
     cdn = ("cloudflare" if "cf-ray" in headers or "cf-cache-status" in headers else
-           "fastly" if "x-served-by" in headers and "fastly" in headers.get("via", "").lower() else
+           "fastly" if "x-fastly-request-id" in headers or
+           ("x-served-by" in headers and "fastly" in headers.get("via", "").lower()) else
            "cloudfront" if "x-amz-cf-id" in headers else
            "akamai" if "x-akamai-transformed" in headers else None)
 

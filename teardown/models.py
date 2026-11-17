@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 
 class Severity(str, Enum):
@@ -148,6 +148,7 @@ class HostTeardown:
     third_parties: list[ThirdParty] = field(default_factory=list)
     secret_leaks: list[SecretLeak] = field(default_factory=list)
     opsec_findings: list[OpsecFinding] = field(default_factory=list)
+    extensions: dict[str, dict[str, Any]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
 

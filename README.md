@@ -88,7 +88,8 @@ inside a `ScanResult` rollup. Shapes are defined in `teardown/models.py`
 (`SCHEMA_VERSION`). An agent should consume the JSON and narrate; the markdown is
 for humans.
 
-Schema 1.1 adds `detections` per host and `aggregate.detections_union`. Each
+Schema 1.2 adds `detections` per host, `aggregate.detections_union`, and
+namespaced `extensions` for additional scan modules. Each detection
 record has a technology name,
 categories, deterministic `confidence` (0–100), and signal labels in `evidence`.
 Confidence reflects matched signal strength and corroboration; it is not a
@@ -159,6 +160,7 @@ teardown/
   http_client.py  # polite async httpx client + Fetcher protocol
   safety.py       # output redaction + request scope checks
   fingerprints.py # database matcher + optional WebAppAnalyzer importer
+  scan_modules.py # ordered, injectable host scan modules
   cache.py        # sanitized daily response cache
   collectors/
     headers.py    # headers + CSP
@@ -174,6 +176,28 @@ teardown/
 
 Collectors take an injected `Fetcher` so they unit-test with a fake, no network.
 Design notes: [`docs/design.md`](docs/design.md).
+
+### Adding a scan module
+
+Built-in host scans run as named modules over the same fetched response and
+injected `Fetcher`. To add a collector in Python, register it before calling
+`run_scan` in the same process:
+
+```python
+from teardown.scan_modules import ScanModule, register_module
+
+async def collect(context):
+    # Use context.fetcher for any bounded, in-scope request.
+    return {"public_marker": "observed"}
+
+register_module(ScanModule("example", collect))
+```
+
+The returned mapping appears at `hosts[].extensions.example` in the JSON.
+Modules run independently, so one collector's error does not stop later ones.
+For a built-in addition, add the module to `scan_modules.py`; use
+`run_scan(..., modules=[...])` to select modules for one scan. Keep module
+payloads deterministic and redact secret values before returning them.
 
 ## Tests
 
@@ -191,3 +215,6 @@ Design notes: [`docs/design.md`](docs/design.md).
   credential leak).
 - **Secrets are redacted at collection and output boundaries.** Third-party keys
   keep only a prefix, and sensitive headers and URL query values are masked.
+- Astro is matched from `/_astro/` JS and stylesheet URLs as well as its page
+  markers. Hosting labels follow current response evidence; a prior Cloudflare
+  result does not carry forward when a host now identifies Fastly or GitHub Pages.

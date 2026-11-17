@@ -41,6 +41,23 @@ def load_fingerprints() -> list[dict]:
     return _load_fingerprints(str(path), modified)
 
 
+def _apply_curated(merged: dict[str, dict], curated: list[dict]) -> list[dict]:
+    """Extend upstream definitions with local rules, preserving upstream signals."""
+    for overlay in curated:
+        key = overlay["name"].casefold()
+        definition = dict(merged.get(key, {}))
+        for field, value in overlay.items():
+            if isinstance(value, list) and isinstance(definition.get(field), list):
+                definition[field] = definition[field] + [item for item in value
+                                                         if item not in definition[field]]
+            elif isinstance(value, dict) and isinstance(definition.get(field), dict):
+                definition[field] = {**definition[field], **value}
+            else:
+                definition[field] = value
+        merged[key] = definition
+    return sorted(merged.values(), key=lambda item: item["name"].casefold())
+
+
 @lru_cache(maxsize=4)
 def _load_fingerprints(path_text: str, _modified: int) -> list[dict]:
     builtins = json.loads(files("teardown.data").joinpath("fingerprints.json").read_text())
@@ -48,16 +65,13 @@ def _load_fingerprints(path_text: str, _modified: int) -> list[dict]:
     path = Path(path_text)
     merged = {item["name"].casefold(): item for item in builtins}
     if not path.is_file():
-        merged.update({item["name"].casefold(): item for item in curated})
-        return sorted(merged.values(), key=lambda item: item["name"].casefold())
+        return _apply_curated(merged, curated)
     try:
         external = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        merged.update({item["name"].casefold(): item for item in curated})
-        return sorted(merged.values(), key=lambda item: item["name"].casefold())
+        return _apply_curated(merged, curated)
     merged.update({item["name"].casefold(): item for item in external if isinstance(item, dict) and "name" in item})
-    merged.update({item["name"].casefold(): item for item in curated})
-    return sorted(merged.values(), key=lambda item: item["name"].casefold())
+    return _apply_curated(merged, curated)
 
 
 def _wapp_pattern(raw: str) -> dict:
@@ -133,6 +147,7 @@ class _PageSignals(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.meta: dict[str, str] = {}
         self.script_src: list[str] = []
+        self.stylesheet_src: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
@@ -142,6 +157,8 @@ class _PageSignals(HTMLParser):
                 self.meta[name.lower()] = values.get("content") or ""
         if tag == "script" and values.get("src"):
             self.script_src.append(values["src"] or "")
+        if tag == "link" and "stylesheet" in (values.get("rel") or "").lower().split() and values.get("href"):
+            self.stylesheet_src.append(values["href"] or "")
 
 
 def _match(pattern: object, value: str) -> tuple[bool, float]:
@@ -195,12 +212,13 @@ def detect_technologies(html: str, headers: dict[str, str], url: str,
             if key.lower() in page.meta:
                 add(f"meta:{key.lower()}", pattern, page.meta[key.lower()])
         for field, values in (("html", [html]), ("scriptSrc", page.script_src),
-                              ("url", [url])):
+                              ("stylesheetSrc", page.stylesheet_src), ("url", [url])):
             for pattern in fp.get(field, []):
                 for value in values:
                     matched, weight = _match(pattern, value)
                     if matched:
-                        label = f"{field}:{safe_url(value) if field == 'scriptSrc' else (pattern.get('re', '') if isinstance(pattern, dict) else pattern) if field == 'html' else safe_url(value)}"
+                        label = (f"html:{pattern.get('re', '') if isinstance(pattern, dict) else pattern}"
+                                 if field == "html" else f"{field}:{safe_url(value)}")
                         if label not in evidence:
                             evidence.append(label[:160])
                             weights.append(weight)
