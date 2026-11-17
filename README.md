@@ -41,10 +41,14 @@ python3 -m venv .venv
 
 ```bash
 # Single host, no subdomain enumeration
-teardown example.com --single --out-dir .
+teardown example.com --single
 
 # Full: enumerate via crt.sh, CertSpotter and Wayback; check up to 100 hosts
-teardown example.com --out-dir .
+teardown example.com
+
+# Show each host, or each module and liveness probe
+teardown example.com -v
+teardown example.com -vv
 
 # Limit liveness checks and host teardowns separately
 teardown example.com --max-probes 40 --max-hosts 10
@@ -55,8 +59,12 @@ teardown example.com --subfinder
 # Opt in to active DNS brute-force
 teardown example.com --active-dns --wordlist words.txt
 
-# Machine output only (no files)
+# Machine output on stdout (no report files; scan still saved to history)
 teardown example.com --single --json-only
+
+# See earlier scans and compare the newest scan with one from at least 7 days ago
+teardown history example.com
+teardown compare example.com --days 7
 
 # Compare two saved JSON scans
 teardown diff last-month.json this-month.json
@@ -77,16 +85,33 @@ teardown fingerprints update
 | `--max-probes N` | 100 | Cap enumerated hosts checked for liveness (0 = no cap). |
 | `--concurrency N` | 10 | Max concurrent requests. |
 | `--rate R` | 8.0 | Global requests/sec cap. |
-| `--out-dir DIR` | `.` | Where JSON + markdown land. |
-| `--name NAME` | from domain | Output basename. |
-| `--json-only` | off | Print JSON to stdout, write nothing. |
-| `--cache-dir DIR` | `.teardown-cache/` | Daily response cache location. |
+| `--out-dir DIR` | `~/.teardown/reports/DOMAIN/` | Where JSON + markdown land. |
+| `--name NAME` | domain + timestamp + ID | Output basename. |
+| `--json-only` | off | Print JSON to stdout; skip report files. |
+| `--data-dir DIR` | `~/.teardown/` | Home for reports, cache, and SQLite history. `TEARDOWN_HOME` also works. |
+| `--cache-dir DIR` | `~/.teardown/cache/` | Daily response cache location. |
 | `--no-cache` | off | Fetch fresh responses. |
+| `--no-history` | off | Do not save the scan to SQLite history. |
+| `-q`, `--quiet` | off | Suppress terminal status. |
+| `-v`, `-vv` | off | Show per-host or per-module progress. |
+| `--no-color` | off | Disable terminal colors. |
 
 ## Output
 
-Two files per scan: `<name>-teardown.json` (machine, versioned schema) and
-`<name>-teardown.md` (vault-ready, matches the existing teardown frontmatter).
+Two files per scan under `~/.teardown/reports/DOMAIN/`: a timestamped
+`<name>-teardown.json` (machine, versioned schema) and `<name>-teardown.md`
+(vault-ready, matches the existing teardown frontmatter). Each run gets a unique
+basename, so earlier reports remain available. Set `--out-dir` to place them
+elsewhere. Scan status and progress go to stderr; `--json-only` keeps stdout
+parseable JSON.
+
+Completed scans and per-host checkpoints are saved in
+`~/.teardown/history.sqlite3`. `teardown history DOMAIN` lists runs, including
+interrupted scans and their checkpoint counts. `teardown compare DOMAIN` diffs
+the newest completed run against the preceding completed run; `--days 7` selects
+the newest completed baseline at least seven days older. Add `--json` to either
+command for machine output. `--json-only` scans are saved too; use
+`--no-history` to opt out. The data home is private to the local user on Unix.
 
 The **JSON is the contract an agent reads** — one `HostTeardown` record per host
 inside a `ScanResult` rollup. Shapes are defined in `teardown/models.py`
@@ -121,6 +146,7 @@ Install the optional extra, then use stdio or local Streamable HTTP:
 .venv/bin/python -m pip install -e '.[mcp]'
 teardown-mcp
 teardown-mcp --transport http --host 127.0.0.1 --port 8000
+teardown-mcp --no-history
 ```
 
 The HTTP endpoint is `http://127.0.0.1:8000/mcp`. The tools are
@@ -128,6 +154,8 @@ The HTTP endpoint is `http://127.0.0.1:8000/mcp`. The tools are
 (compatibility alias), and `diff_scans` (two JSON objects). They reuse the CLI
 collection path. The default bind address is loopback. See
 [`.mcp.json.example`](.mcp.json.example) for a stdio registration example.
+MCP scan tools save to the same SQLite history by default. Start the server with
+`--no-history` to disable this or `--data-dir DIR` to use another data home.
 
 ## How collection behaves
 
@@ -142,7 +170,7 @@ collection path. The default bind address is loopback. See
 - Liveness checks stop after `--max-probes` candidates. The 25-host teardown cap
   applies after liveness checks. The liveness response is reused for collection.
   Each HTTP response body is limited to 8 MB.
-- GET responses are cached by URL and UTC day under `.teardown-cache/` so a
+- GET responses are cached by URL and UTC day under `~/.teardown/cache/` so a
   rerun resumes without repeating successful requests. Bodies mentioning
   sensitive concepts, containing long opaque values, or matching recognized
   secret patterns are not persisted. The cache keeps only cookie names, never
@@ -167,6 +195,8 @@ teardown/
   fingerprints.py # database matcher + optional WebAppAnalyzer importer
   scan_modules.py # ordered, injectable host scan modules
   cache.py        # sanitized daily response cache
+  history.py      # SQLite scan history and host checkpoints
+  terminal.py     # styled stderr progress and history tables
   collectors/
     headers.py    # headers + CSP
     html_js.py    # CMS details, bundles, third-parties, secret leaks

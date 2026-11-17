@@ -88,7 +88,7 @@ def test_registration_rejects_duplicate_names(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_scan_accepts_module_list(monkeypatch):
+async def test_run_scan_accepts_module_list(monkeypatch, tmp_path):
     async def extra(_context):
         return {"observed": "yes"}
 
@@ -112,5 +112,6 @@ async def test_run_scan_accepts_module_list(monkeypatch):
     result = await run_scan("example.com", single=True, active_dns=False,
                             wordlist=None, max_hosts=1, max_probes=1,
                             concurrency=1, rate_per_sec=1,
+                            data_dir=str(tmp_path),
                             modules=[ScanModule("extra", extra)])
     assert result.hosts[0].extensions == {"extra": {"observed": "yes"}}

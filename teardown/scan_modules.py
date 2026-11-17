@@ -130,13 +130,18 @@ def default_modules() -> tuple[ScanModule, ...]:
     return (*_BUILTIN_MODULES, *_EXTRA_MODULES)
 
 
-async def run_modules(context: ScanContext, modules: Sequence[ScanModule] | None = None) -> None:
+async def run_modules(context: ScanContext, modules: Sequence[ScanModule] | None = None,
+                      on_module: Callable[[str, bool], None] | None = None) -> None:
     """Run each module independently, preserving later modules after failures."""
     selected = default_modules() if modules is None else tuple(modules)
     for module in selected:
+        success = False
         try:
             payload = await module.collect(context)
             if payload is not None:
                 context.host.extensions[module.name] = safe_extension(payload)
+            success = True
         except Exception as exc:  # noqa: BLE001 - collection is best-effort per module
             context.host.errors.append(f"module {module.name} error: {type(exc).__name__}")
+        if on_module:
+            on_module(module.name, success)

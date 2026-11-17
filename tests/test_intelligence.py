@@ -299,16 +299,23 @@ def test_diff_ignores_timestamps_and_reports_stable_changes():
 def test_mcp_transport_selection(monkeypatch):
     from teardown import mcp_server
     calls = []
+    settings = []
 
     class Server:
         def run(self, **kwargs):
             calls.append(kwargs)
 
-    monkeypatch.setattr(mcp_server, "create_server", Server)
+    def fake_server(**kwargs):
+        settings.append(kwargs)
+        return Server()
+
+    monkeypatch.setattr(mcp_server, "create_server", fake_server)
     mcp_server.main(["--transport", "http", "--port", "8123"])
     mcp_server.main(["--transport", "stdio"])
+    mcp_server.main(["--transport", "stdio", "--no-history", "--data-dir", "/tmp/custom"])
     assert calls == [{"transport": "http", "host": "127.0.0.1", "port": 8123},
-                     {"transport": "stdio"}]
+                     {"transport": "stdio"}, {"transport": "stdio"}]
+    assert settings[-1] == {"history_enabled": False, "data_dir": "/tmp/custom"}
 
 
 @pytest.mark.asyncio
@@ -338,7 +345,7 @@ async def test_mcp_tools_in_process(monkeypatch):
     monkeypatch.setattr("teardown.mcp_server.run_scan", fake_run_scan)
     monkeypatch.setattr("teardown.http_client.HttpClient", FakeClient)
     monkeypatch.setattr("teardown.enumerate.enumerate_subdomains", fake_enumerate)
-    async with fastmcp.Client(create_server()) as client:
+    async with fastmcp.Client(create_server(history_enabled=False)) as client:
         tools = await client.list_tools()
         assert {tool.name for tool in tools} == {
             "teardown_host", "teardown_domain", "enumerate_subdomains",

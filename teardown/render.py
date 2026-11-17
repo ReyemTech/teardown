@@ -291,9 +291,13 @@ def write_outputs(result: ScanResult, out_dir: str, basename: str) -> dict[str, 
     json_path = os.path.join(out_dir, f"{basename}-teardown.json")
     md_path = os.path.join(out_dir, f"{basename}-teardown.md")
 
-    with open(json_path, "w", encoding="utf-8") as fh:
+    with os.fdopen(os.open(json_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600),
+                   "w", encoding="utf-8") as fh:
+        os.fchmod(fh.fileno(), 0o600)
         fh.write(json.dumps(to_dict(result), indent=2))
-    with open(md_path, "w", encoding="utf-8") as fh:
+    with os.fdopen(os.open(md_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600),
+                   "w", encoding="utf-8") as fh:
+        os.fchmod(fh.fileno(), 0o600)
         fh.write(render_markdown(result))
 
     return {"json": json_path, "md": md_path}
