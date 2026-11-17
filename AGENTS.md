@@ -15,7 +15,7 @@ signals only** — no auth, no exploitation. Given a domain it:
    REST/GraphQL/OpenAPI/WordPress API surface, third-party fingerprints, redacted
    secret leaks, OPSEC findings.
 4. Emits an **agent-readable JSON contract** (`ScanResult`/`HostTeardown`, schema
-   1.3) plus a vault-compatible markdown rendering and cross-run diff.
+   1.4) plus a vault-compatible markdown rendering and cross-run diff.
 
 The guiding split: **deterministic collection (this code) vs. interpretation (the
 agent that reads the JSON).** Keep narrative/judgment out of the tool; it produces
@@ -70,6 +70,9 @@ docs/design.md       # the design doc / why
 - **Network attribution is observed infrastructure.** DNS A/AAAA addresses can
   be CDN edges and can differ from the HTTP connection peer. Never call them
   origin IPs or infer app operators from ASN/registry names.
+- **Geo-IP is approximate.** Treat GeoLite country, city and coordinates as
+  sourced estimates for the observed IP, not physical server locations. Keep
+  the MaxMind attribution in reports and docs; suppress unknown placeholders.
 - `from __future__ import annotations` at the top of every module; `requires-python
   >= 3.10`.
 

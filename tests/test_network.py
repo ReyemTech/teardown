@@ -10,9 +10,9 @@ import pytest
 from teardown.diff import diff_results
 from teardown.http_client import FetchResponse, HttpClient
 from teardown.models import (DnsObservation, HostTeardown, HttpInfo, NetworkAddress,
-                             NetworkInfo, ScanResult, to_dict)
+                             NetworkInfo, GeoIpInfo, ScanResult, to_dict)
 from teardown.network import collect_network, resolve_dns
-from teardown.render import render_host_markdown
+from teardown.render import render_host_markdown, render_markdown
 
 
 class FakeResolver:
@@ -108,6 +108,71 @@ async def test_collect_network_multi_origin_holder_and_edge():
 
 
 @pytest.mark.asyncio
+async def test_geo_ip_selects_best_valid_location_and_preserves_routing():
+    from teardown.models import DnsObservation
+    address = "8.8.8.8"
+    base = "https://stat.ripe.net/data/"
+    fetcher = FakeFetcher(DnsObservation(addresses=[address]), {
+        f"{base}network-info/data.json?resource={address}":
+            {"data": {"prefix": "8.8.8.0/24", "asns": [15169]}},
+        f"{base}maxmind-geo-lite/data.json?resource={address}": {"data": {
+            "result_time": "2026-11-13T20:46:43", "located_resources": [{"locations": [
+                {"country": "?", "city": "", "latitude": 0, "longitude": 0,
+                 "covered_percentage": 80},
+                {"country": "US", "city": "Mountain View", "latitude": 37.4,
+                 "longitude": -122.1, "covered_percentage": 60},
+                {"country": "CA", "city": "Toronto", "latitude": 43.7,
+                 "longitude": -79.4, "covered_percentage": 90},
+            ]}]}},
+    })
+    network = await collect_network(HostTeardown(target="https://example.com", host="example.com"),
+                                    fetcher)
+    entry = network.addresses[0]
+    assert entry.prefix == "8.8.8.0/24"
+    assert entry.geo.country_code == "CA"
+    assert entry.geo.city == "Toronto"
+    assert entry.geo.latitude == 43.7
+    assert entry.geo.source == "MaxMind GeoLite2 via RIPEstat"
+    assert entry.geo.data_updated_at == "2026-11-13T20:46:43"
+
+
+@pytest.mark.asyncio
+async def test_geo_ip_unknown_placeholder_and_failure_do_not_invent_location():
+    from teardown.models import DnsObservation
+    address = "8.8.8.8"
+    url = f"https://stat.ripe.net/data/maxmind-geo-lite/data.json?resource={address}"
+    unknown = FakeFetcher(DnsObservation(addresses=[address]), {
+        url: {"data": {"located_resources": [{"locations": [
+            {"country": "?", "city": "", "latitude": 0, "longitude": 0}
+        ]}]}},
+    })
+    unknown_entry = (await collect_network(HostTeardown(target="https://example.com",
+                                                          host="example.com"), unknown)).addresses[0]
+    assert unknown_entry.geo is None
+    failed = FakeFetcher(DnsObservation(addresses=[address]), {})
+    failed_entry = (await collect_network(HostTeardown(target="https://example.com",
+                                                         host="example.com"), failed)).addresses[0]
+    assert failed_entry.geo is None
+    assert "geo-ip unavailable" in failed_entry.errors
+
+
+@pytest.mark.asyncio
+async def test_geo_ip_keeps_country_without_invalid_city_or_coordinates():
+    address = "8.8.8.8"
+    url = f"https://stat.ripe.net/data/maxmind-geo-lite/data.json?resource={address}"
+    fetcher = FakeFetcher(DnsObservation(addresses=[address]), {
+        url: {"data": {"located_resources": [{"locations": [
+            {"country": "US", "city": "?", "latitude": 999, "longitude": 0}
+        ]}]}},
+    })
+    geo = (await collect_network(HostTeardown(target="https://example.com",
+                                               host="example.com"), fetcher)).addresses[0].geo
+    assert geo.country_code == "US"
+    assert geo.city is None
+    assert geo.latitude is None and geo.longitude is None
+
+
+@pytest.mark.asyncio
 async def test_collect_network_skips_private_and_tolerates_missing_sources():
     from teardown.models import DnsObservation
     fetcher = FakeFetcher(DnsObservation(addresses=["10.0.0.1", "8.8.8.8"]), {})
@@ -116,7 +181,8 @@ async def test_collect_network_skips_private_and_tolerates_missing_sources():
     assert network.observation == "observed_endpoint"
     assert [item.address for item in network.addresses] == ["10.0.0.1", "8.8.8.8"]
     assert network.addresses[0].prefix is None
-    assert network.addresses[1].errors == ["network-info unavailable", "whois unavailable"]
+    assert network.addresses[1].errors == ["network-info unavailable", "whois unavailable",
+                                         "geo-ip unavailable"]
     assert not any("10.0.0.1" in url for url in fetcher.urls)
 
 
@@ -162,10 +228,13 @@ async def test_ripe_api_is_allowlisted_but_other_external_paths_are_blocked():
     async with HttpClient(root_domain="example.com", transport=httpx.MockTransport(handler),
                           rate_per_sec=1000, retries=0) as client:
         good = await client.get("https://stat.ripe.net/data/network-info/data.json?resource=8.8.8.8")
+        geo = await client.get("https://stat.ripe.net/data/maxmind-geo-lite/data.json?resource=8.8.8.8")
         bad = await client.get("https://stat.ripe.net/other?resource=8.8.8.8")
     assert good.status == 200
+    assert geo.status == 200
     assert bad.status is None
-    assert requests == ["https://stat.ripe.net/data/network-info/data.json?resource=8.8.8.8"]
+    assert requests == ["https://stat.ripe.net/data/network-info/data.json?resource=8.8.8.8",
+                        "https://stat.ripe.net/data/maxmind-geo-lite/data.json?resource=8.8.8.8"]
 
 
 def test_network_renders_and_diffs_as_structured_evidence():
@@ -198,6 +267,51 @@ def test_asn_holder_reassignment_appears_in_diff():
     changes = diff_results(result({"1": "Alpha", "2": "Beta"}),
                            result({"1": "Beta", "2": "Alpha"}))["changed_hosts"]
     assert changes
+
+
+def test_geo_ip_rendering_attribution_and_diff():
+    geo = GeoIpInfo(country_code="CA", city="Toronto", latitude=43.7,
+                    longitude=-79.4, data_updated_at="2026-11-13T20:46:43")
+    old_host = HostTeardown(target="https://example.com", host="example.com",
+                            http=HttpInfo(cdn="cloudflare"),
+                            network=NetworkInfo(observation="cdn_edge", addresses=[
+                                NetworkAddress(address="1.1.1.1")]))
+    new_host = HostTeardown(target="https://example.com", host="example.com",
+                            http=HttpInfo(cdn="cloudflare"),
+                            network=NetworkInfo(observation="cdn_edge", addresses=[
+                                NetworkAddress(address="1.1.1.1", geo=geo)]))
+    rendered = render_host_markdown(new_host)
+    assert "Toronto, CA" in rendered
+    assert "CDN edge" in rendered
+    assert "approximate" in rendered.lower()
+    assert "MaxMind GeoLite" in render_markdown(ScanResult(root_domain="example.com", hosts=[new_host]))
+    old = to_dict(ScanResult(root_domain="example.com", hosts=[old_host]))
+    new = to_dict(ScanResult(root_domain="example.com", hosts=[new_host]))
+    assert any(change["path"] == "network.addresses" and "geo" in str(change["after"])
+               for change in diff_results(old, new)["changed_hosts"][0]["changes"])
+
+
+@pytest.mark.asyncio
+async def test_ripe_api_concurrency_stays_below_provider_limit():
+    import asyncio
+
+    active = 0
+    peak = 0
+
+    async def handler(_request):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return httpx.Response(200, json={"data": {}})
+
+    async with HttpClient(root_domain="example.com", concurrency=12, rate_per_sec=10000,
+                          retries=0, transport=httpx.MockTransport(handler)) as client:
+        await asyncio.gather(*(client.get(
+            f"https://stat.ripe.net/data/maxmind-geo-lite/data.json?resource=8.8.8.{n}")
+            for n in range(1, 13)))
+    assert peak <= 8
 
 
 @pytest.mark.asyncio

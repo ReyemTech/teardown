@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import math
 from typing import Any
 from urllib.parse import quote
 
 from .http_client import Fetcher
-from .models import DnsObservation, HostTeardown, NetworkAddress, NetworkInfo
+from .models import DnsObservation, GeoIpInfo, HostTeardown, NetworkAddress, NetworkInfo
 
 MAX_ADDRESSES = 8
 MAX_CNAME_HOPS = 8
@@ -102,6 +103,53 @@ def _registration(data: dict[str, Any]) -> tuple[str | None, str | None, list[st
     return holder, network_name, authorities
 
 
+def _geo_ip(data: dict[str, Any], address: str) -> GeoIpInfo | None:
+    candidates: list[tuple[float, GeoIpInfo]] = []
+    resources = data.get("located_resources")
+    if not isinstance(resources, list):
+        return None
+    for resource in resources:
+        if not isinstance(resource, dict):
+            continue
+        network = resource.get("resource")
+        if isinstance(network, str):
+            try:
+                if ipaddress.ip_address(address) not in ipaddress.ip_network(network, strict=False):
+                    continue
+            except ValueError:
+                continue
+        locations = resource.get("locations")
+        if not isinstance(locations, list):
+            continue
+        for location in locations:
+            if not isinstance(location, dict):
+                continue
+            country = location.get("country")
+            if not (isinstance(country, str) and len(country) == 2 and country.isascii()
+                    and country.isalpha()):
+                continue
+            city = location.get("city")
+            city = city.strip() if isinstance(city, str) and city.strip() else None
+            if city and city.casefold() in {"?", "unknown", "n/a"}:
+                city = None
+            lat = location.get("latitude")
+            lon = location.get("longitude")
+            if not (isinstance(lat, (int, float)) and not isinstance(lat, bool)
+                    and isinstance(lon, (int, float)) and not isinstance(lon, bool)
+                    and math.isfinite(lat) and math.isfinite(lon)
+                    and -90 <= lat <= 90 and -180 <= lon <= 180
+                    and (lat, lon) != (0, 0)):
+                lat = lon = None
+            coverage = location.get("covered_percentage")
+            coverage = float(coverage) if isinstance(coverage, (int, float)) and math.isfinite(coverage) else 0.0
+            updated = data.get("result_time")
+            candidates.append((coverage, GeoIpInfo(
+                country_code=country.upper(), city=city, latitude=lat, longitude=lon,
+                data_updated_at=updated if isinstance(updated, str) else None,
+            )))
+    return max(candidates, key=lambda pair: pair[0])[1] if candidates else None
+
+
 async def collect_network(host: HostTeardown, fetcher: Fetcher) -> NetworkInfo:
     """Attribute DNS answers, never claiming the application origin."""
     network = NetworkInfo(observation="cdn_edge" if host.http.cdn else "observed_endpoint")
@@ -125,9 +173,10 @@ async def collect_network(host: HostTeardown, fetcher: Fetcher) -> NetworkInfo:
             return entry
         if not ip.is_global:
             return entry
-        route, registration = await asyncio.gather(
+        route, registration, geo = await asyncio.gather(
             _data(fetcher, "network-info", address),
             _data(fetcher, "whois", address),
+            _data(fetcher, "maxmind-geo-lite", address),
         )
         if route is not None:
             prefix = route.get("prefix")
@@ -155,6 +204,12 @@ async def collect_network(host: HostTeardown, fetcher: Fetcher) -> NetworkInfo:
             entry.sources.append("rir_whois")
         else:
             entry.errors.append("whois unavailable")
+        if geo is not None:
+            entry.geo = _geo_ip(geo, address)
+            if entry.geo is not None:
+                entry.sources.append("maxmind_geolite2")
+        else:
+            entry.errors.append("geo-ip unavailable")
         return entry
 
     network.addresses = list(await asyncio.gather(*(enrich(address) for address in network.dns.addresses)))
