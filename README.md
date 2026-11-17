@@ -12,15 +12,20 @@ brute-force is opt-in (`--active-dns`) and off by default.
 
 ```bash
 # Once published to PyPI:
-uvx --from tech-teardown teardown example.com --single
+uvx tech-teardown example.com --single
 
 # Straight from the repo (works today):
 uvx --from git+https://github.com/ReyemTech/teardown teardown example.com --single
 ```
 
-The PyPI distribution is `tech-teardown`; the command stays `teardown`. `uvx` builds an
+The PyPI distribution is `tech-teardown`; it provides both `tech-teardown` and
+`teardown` as CLI commands. `uvx` builds an
 ephemeral environment and runs it — nothing to install. For the active-DNS extra:
 `uvx --with dnspython --from git+https://github.com/ReyemTech/teardown teardown example.com --active-dns`.
+
+Releases are automatic on `main`: Conventional Commits determine the next
+version, and GitHub Actions publishes through PyPI trusted publishing. See
+[`PUBLISHING.md`](PUBLISHING.md).
 
 ## Local dev install
 

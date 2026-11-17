@@ -25,7 +25,13 @@ mcp = ["fastmcp>=2.14,<3; python_version < '3.11'", "fastmcp>=2.14,<5; python_ve
 
 [project.scripts]
 teardown = "teardown.cli:main"
+tech-teardown = "teardown.cli:main"
 teardown-mcp = "teardown.mcp_server:main"
+
+[tool.semantic_release]
+allow_zero_version = true
+commit_parser = "conventional"
+version_toml = ["pyproject.toml:project.version"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["teardown"]

@@ -1,14 +1,19 @@
 # Publishing
 
-The PyPI distribution is `tech-teardown` and the console command is `teardown`. It builds with
+The PyPI distribution is `tech-teardown`, with `tech-teardown` and `teardown`
+console commands. It builds with
 hatchling and publishes from GitHub Actions through PyPI trusted publishing.
 
-## 1. Bump the version
+## 1. Use Conventional Commits
 
-Edit `version` in `pyproject.toml` (semver). A PyPI version can only be uploaded
-once — never reuse a number.
+Merge a PR into `main` with a Conventional Commit subject. Python Semantic
+Release reads commits since the previous `v<version>` tag: `fix:` and `perf:`
+bump patch, `feat:` bumps minor, and a breaking change bumps major. Other
+types such as `docs:` and `chore:` do not publish by themselves. It updates
+`pyproject.toml`, creates the version tag and GitHub release, and writes the
+changelog. Do not edit the version by hand.
 
-## 2. Build
+## 2. Build locally when needed
 
 ```bash
 uv build --out-dir dist-release
@@ -16,16 +21,16 @@ uv build --out-dir dist-release
 #    dist-release/tech_teardown-<version>.tar.gz
 ```
 
-Sanity-check the built artifact before publishing:
+Sanity-check a built artifact:
 
 ```bash
 uvx --from dist-release/tech_teardown-<version>-py3-none-any.whl teardown example.com --single --json-only
 ```
 
-## 3. Configure PyPI once
+## 3. PyPI trusted publisher
 
-For the first release, add a [pending trusted publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
-in your PyPI account with these exact fields:
+The [trusted publisher](https://docs.pypi.org/trusted-publishers/)
+is configured in PyPI with these fields:
 
 | Field | Value |
 |-------|-------|
@@ -35,25 +40,21 @@ in your PyPI account with these exact fields:
 | Workflow filename | `release.yml` |
 | Environment | leave blank |
 
-PyPI converts the pending publisher to a normal publisher on first upload. No
-long-lived token is needed in the repository or workflow.
+No long-lived token is needed in the repository or workflow.
 
 ## 4. Publish to PyPI
 
-Tag the verified `main` commit. The tag starts the release workflow, which
-reruns tests, builds both distributions, and publishes with GitHub OIDC:
-
-```bash
-git tag -a v<version> -m v<version>
-git push origin v<version>
-```
+Merging into `main` starts `.github/workflows/release.yml`. It tests the
+merged commit, calculates a release, builds the distributions, and publishes
+with GitHub OIDC when a new version was created. The publish job has PyPI
+access; the version job has GitHub contents write access.
 
 ## 5. After publish
 
 Once live, anyone can run it with no install:
 
 ```bash
-uvx --from tech-teardown teardown example.com --single
+uvx tech-teardown example.com --single
 ```
 
 ## Notes
@@ -62,6 +63,5 @@ uvx --from tech-teardown teardown example.com --single
 - Runtime deps: `httpx` and `tldextract` (using its bundled public suffix list).
   `dnspython` is an optional extra (`tech-teardown[active-dns]`),
   only needed for `--active-dns`. FastMCP is an optional extra (`tech-teardown[mcp]`).
-- CI runs tests on Python 3.10–3.14, builds distributions, and checks the
-  installed wheel's CLI. `.github/workflows/release.yml` publishes only on
-  version tags after its build and test job succeeds.
+- PR CI runs tests on Python 3.10–3.14, builds distributions, and checks both
+  CLI names from the installed wheel. The release workflow retests on `main`.
