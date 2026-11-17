@@ -21,6 +21,10 @@ from teardown.models import (
     WordPressInfo,
     HostingEvidence,
     ArtifactRef,
+    SourceMapIntel,
+    SourceMapSource,
+    EmbeddedOpenApi,
+    ApiPathReference,
 )
 
 
@@ -133,6 +137,33 @@ def test_map_link_preserves_query_position():
     host.bundles[0].url = "https://app.example.com/app.js?v=1"
     section = render_host_markdown(host)
     assert "https://app.example.com/app.js.map?v=1" in section
+
+
+def test_full_sourcemap_appendix_lists_sources_and_embedded_api_paths():
+    result = _build_result()
+    result.hosts[0].bundles[0].source_map_intel = SourceMapIntel(
+        total_sources=2, embedded_sources=2, application_sources=1,
+        dependency_sources=1,
+        sources=[SourceMapSource("src/api.js", "application", True),
+                 SourceMapSource("node_modules/pkg/index.js", "dependency", True)],
+        embedded_openapi=EmbeddedOpenApi(
+            source_path="src/api.js", version="3.0.3", path_count=1,
+            operation_count=2, schema_count=1, methods={"GET": 1, "POST": 1},
+            paths=[ApiPathReference("/api/users", ["GET", "POST"])],
+            schema_names=["User"],
+        ),
+    )
+    report = render_markdown(result)
+    assert "Source-map appendix" in report
+    assert "src/api.js" in report and "node_modules/pkg/index.js" in report
+    assert "88" not in report.split("Source-map appendix", 1)[1]
+    assert "OpenAPI 3.0.3" in report
+    assert "| `/api/users` | GET, POST |" in report
+    assert "WSTG-INFO-05" in report and "WSTG-APIT-03" in report
+    assert "not verified reachable" in report
+    assert "Embedded OpenAPI structure in source map" in report
+    assert "- Source maps: 1 with embedded source" in report
+    assert report.rindex("## To Do") > report.rindex("Source-map appendix")
 
 
 def test_inventory_table_lists_hosts_and_counts():

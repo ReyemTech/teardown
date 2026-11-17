@@ -13,6 +13,7 @@ _SENSITIVE = re.compile(
     re.I,
 )
 _URL_IN_TEXT = re.compile(r"(?:https?|wss?)://[^\s<>\"'`)]+")
+_QUERY_VALUE_IN_TEXT = re.compile(r"([?&]([A-Za-z0-9_-]+)=)([^&#;\s<>\"'`),]+)")
 _EXTRACT = tldextract.TLDExtract(
     suffix_list_urls=(), cache_dir=None, include_psl_private_domains=True
 )
@@ -72,7 +73,10 @@ def _cookie_names(value: str) -> str:
 
 def safe_text(value: str) -> str:
     """Mask sensitive URL query values embedded in free-text findings or CSP."""
-    return _URL_IN_TEXT.sub(lambda match: safe_url(match.group()) or "", value)
+    value = _URL_IN_TEXT.sub(lambda match: safe_url(match.group()) or "", value)
+    return _QUERY_VALUE_IN_TEXT.sub(
+        lambda match: match.group(1) + "[REDACTED]"
+        if _SENSITIVE.search(match.group(2)) else match.group(), value)
 
 
 def in_scope(url: str, root_domain: str) -> bool:

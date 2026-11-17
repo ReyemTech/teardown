@@ -175,6 +175,25 @@ Elastic Beanstalk. A Cloudflare CDN hop is shown separately from a platform
 hop; neither proves an origin IP. Provider rules are in
 [`teardown/data/cname_providers.json`](teardown/data/cname_providers.json).
 
+Schema 1.6 adds `bundles[].source_map_intel` for exposed first-party maps.
+It inventories original source paths, distinguishes embedded source content
+from path-only maps, and identifies dependency versus application paths. When
+an embedded source contains a JSON-formatted OpenAPI object, the JSON and
+Markdown report list its path templates, HTTP methods, and component schemas.
+The Markdown appendix includes up to 200 source paths and 200 API paths per
+map, with an omission count above either cap. Raw source text and credential
+values are not copied into the report. The local sanitized map artifact remains
+available for deeper inspection.
+
+These API paths are **references in shipped frontend code**, not verified live
+endpoints. Teardown does not send requests to all referenced paths or execute
+the described POST/PUT/PATCH/DELETE operations. Even a GET can have side
+effects in a poorly designed application. The passive inventory does not prove
+missing authorization, an exploitable vulnerability, or a package CVE.
+The appendix links to [OWASP WSTG-INFO-05](https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/01-Information_Gathering/05-Review_Web_Page_Content_for_Information_Leakage/)
+and [WSTG-APIT-03](https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/12-API_Testing/03-Excessive_Data_Exposure/)
+as review guidance.
+
 This product includes GeoLite Data created by MaxMind, available from
 https://www.maxmind.com. GeoLite2 data is accessed through the
 [RIPEstat MaxMind GeoLite endpoint](https://stat.ripe.net/docs/data-api/api-endpoints/maxmind-geo-lite).

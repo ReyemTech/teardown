@@ -107,6 +107,10 @@ def _network_cell(value: str | None) -> str:
     return (value or "—").replace("|", "\\|").replace("\n", " ")
 
 
+def _code_cell(value: str) -> str:
+    return "`" + _network_cell(value).replace("`", "'") + "`"
+
+
 def render_host_markdown(host: HostTeardown) -> str:
     """The single-host section (reused by render_markdown and usable standalone)."""
     lines: list[str] = [f"### {host.host or host.target or 'host'}", ""]
@@ -209,6 +213,64 @@ def render_host_markdown(host: HostTeardown) -> str:
                 if artifact:
                     lines.append(f"  - {label}: `{artifact.local_path}` "
                                  f"(SHA-256 `{artifact.sha256}`, sanitized, {artifact.bytes} bytes)")
+            intel = bundle.source_map_intel
+            if intel:
+                lines.append("")
+                lines.append(f"#### Source-map appendix — {_code_cell(bundle.url)}")
+                lines.append("")
+                lines.append(f"- {intel.total_sources} source paths; {intel.embedded_sources} "
+                             "have embedded original content.")
+                lines.append(f"- {intel.application_sources} application/non-dependency "
+                             f"paths; {intel.dependency_sources} dependency paths "
+                             "(classified from source paths).")
+                lines.append("")
+                lines.append("| Original source path | Class | Content embedded |")
+                lines.append("|----------------------|-------|------------------|")
+                for source in intel.sources:
+                    lines.append(f"| {_code_cell(source.path)} | {source.kind} | "
+                                 f"{'Yes' if source.embedded else 'No'} |")
+                if intel.sources_omitted:
+                    lines.append(f"| … {intel.sources_omitted} additional paths omitted "
+                                 "at the inventory cap | — | — |")
+                lines.append("")
+                spec = intel.embedded_openapi
+                if spec:
+                    lines.append(f"**Embedded OpenAPI {spec.version} specification** "
+                                 f"in {_code_cell(spec.source_path)}")
+                    lines.append("")
+                    lines.append(f"- {spec.path_count} path entries, "
+                                 f"{spec.operation_count} HTTP operations, "
+                                 f"{spec.schema_count} component schemas.")
+                    lines.append("- Methods: " + ", ".join(
+                        f"{method} {count}" for method, count in sorted(spec.methods.items())))
+                    lines.append("")
+                    lines.append("| Referenced API path | Methods described |")
+                    lines.append("|---------------------|-------------------|")
+                    for path in spec.paths:
+                        lines.append(f"| {_code_cell(path.path)} | "
+                                     f"{', '.join(path.methods) or '—'} |")
+                    if spec.paths_omitted:
+                        lines.append(f"| … {spec.paths_omitted} additional paths omitted "
+                                     "at the inventory cap | — |")
+                    lines.append("")
+                    if spec.schema_names:
+                        lines.append("Component schemas: " + ", ".join(
+                            _code_cell(name) for name in spec.schema_names)
+                            + (f", … {spec.schemas_omitted} omitted" if spec.schemas_omitted else "") + ".")
+                        lines.append("")
+                elif intel.referenced_api_paths:
+                    lines.append("**API path references in embedded source**")
+                    lines.append("")
+                    lines.extend(f"- {_code_cell(path)}" for path in intel.referenced_api_paths)
+                    if intel.routes_omitted:
+                        lines.append(f"- … {intel.routes_omitted} additional paths omitted "
+                                     "at the inventory cap")
+                    lines.append("")
+                lines.append("These paths are source references, not verified reachable "
+                             "endpoints. This scan does not establish their authorization "
+                             "behavior. Review against "
+                             "[OWASP WSTG-INFO-05](https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/01-Information_Gathering/05-Review_Web_Page_Content_for_Information_Leakage/) "
+                             "and [WSTG-APIT-03](https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/12-API_Testing/03-Excessive_Data_Exposure/).")
         lines.append("")
 
     # API surface
@@ -230,6 +292,15 @@ def render_host_markdown(host: HostTeardown) -> str:
             f"- OpenAPI/Swagger: exposed at {api.openapi.url or 'unknown'} "
             f"({len(api.openapi.endpoints)} endpoints)"
         )
+    for bundle in host.bundles:
+        intel = bundle.source_map_intel
+        if intel and intel.embedded_openapi:
+            spec = intel.embedded_openapi
+            api_lines.append(
+                f"- Embedded OpenAPI structure in source map: {spec.path_count} "
+                f"referenced path entries, {spec.operation_count} described operations "
+                "(not verified reachable)."
+            )
     if api.wordpress and (api.wordpress.wp_json or api.wordpress.users_enumerable):
         wp_state = "users enumerable" if api.wordpress.users_enumerable else "wp-json present"
         api_lines.append(f"- WordPress: {wp_state}")
@@ -293,12 +364,18 @@ def _tldr(result: ScanResult) -> str:
     live = sum(host.reachable for host in result.hosts)
     providers = sorted(set(result.aggregate.tech_stack_union.get("hosting", [])))
     frameworks = result.aggregate.tech_stack_union.get("frameworks", [])
+    mapped = [bundle.source_map_intel for host in result.hosts for bundle in host.bundles
+              if bundle.source_map_intel]
+    embedded_maps = sum(bool(intel.embedded_sources) for intel in mapped)
+    spec_count = sum(bool(intel.embedded_openapi) for intel in mapped)
     counts = {severity: sum(f.severity == severity for host in result.hosts
                              for f in host.opsec_findings) for severity in Severity}
     return "\n".join([
         f"- {live} of {len(result.hosts)} hosts reachable.",
         f"- Observed hosting/routing: {', '.join(providers) if providers else 'none identified'}.",
         f"- Frameworks: {', '.join(frameworks) if frameworks else 'none identified'}.",
+        f"- Source maps: {embedded_maps} with embedded source; "
+        f"{spec_count} with embedded OpenAPI structure.",
         "- Findings: " + ", ".join(f"{counts[s]} {s.value}" for s in Severity) + ".",
     ])
 

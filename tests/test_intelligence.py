@@ -275,7 +275,7 @@ async def test_run_scan_reuses_liveness_page_and_serializes_detections(monkeypat
     host = to_dict(result)["hosts"][0]
     assert host["http"]["title"] == "Example"
     assert "Livewire" in {item["name"] for item in host["detections"]}
-    assert result.schema_version == "1.5"
+    assert result.schema_version == "1.6"
     assert "Livewire" in result.aggregate.detections_union
 
 

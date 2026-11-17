@@ -18,6 +18,7 @@ from teardown.artifacts import ArtifactStore
 from teardown.http_client import Fetcher
 from teardown.models import Bundle, CmsInfo, SecretLeak, ThirdParty
 from teardown.safety import redact_key, registrable_domain, safe_url, source_map_url
+from teardown.sourcemap_intel import analyze_source_map
 
 # --------------------------------------------------------------------------- #
 # Framework detection
@@ -454,15 +455,26 @@ async def enrich_bundles(
             bundle_host = urlsplit(bundle.url).hostname or ""
             first_party = bool(host_name and bundle_host and
                                registrable_domain(bundle_host) == registrable_domain(host_name))
+            if first_party and bundle.has_sourcemap and source_map is not None:
+                try:
+                    bundle.source_map_intel = analyze_source_map(source_map)
+                except Exception:  # noqa: BLE001 - malformed map must not stop bundle collection
+                    bundle.source_map_intel = None
             save = bool(artifact_store and bundle.has_sourcemap and first_party)
             if save and source_map is not None:
-                bundle.sourcemap_artifact = artifact_store.save_map(source_map)
+                try:
+                    bundle.sourcemap_artifact = artifact_store.save_map(source_map)
+                except Exception:  # noqa: BLE001 - artifact retention is best-effort
+                    bundle.sourcemap_artifact = None
 
             # 2. Fetch + scan the bundle body.
             body_resp = await fetcher.get(bundle.url)
             body = body_resp.text or ""
             if save and body_resp.status == 200 and body:
-                bundle.source_artifact = artifact_store.save_source(body)
+                try:
+                    bundle.source_artifact = artifact_store.save_source(body)
+                except Exception:  # noqa: BLE001 - still analyze the fetched bundle
+                    bundle.source_artifact = None
             if not body:
                 continue
 

@@ -15,7 +15,7 @@ signals only** — no auth, no exploitation. Given a domain it:
    REST/GraphQL/OpenAPI/WordPress API surface, third-party fingerprints, redacted
    secret leaks, OPSEC findings.
 4. Emits an **agent-readable JSON contract** (`ScanResult`/`HostTeardown`, schema
-   1.5) plus a vault-compatible markdown rendering and cross-run diff.
+   1.6) plus a vault-compatible markdown rendering and cross-run diff.
 
 The guiding split: **deterministic collection (this code) vs. interpretation (the
 agent that reads the JSON).** Keep narrative/judgment out of the tool; it produces
@@ -36,6 +36,7 @@ teardown/
   network.py        # bounded DNS + RIPEstat route/registration attribution
   hosting.py        # provider-owned CNAME attribution rules
   artifacts.py      # private sanitized JS and source-map retention
+  sourcemap_intel.py # pure source-map inventory and embedded OpenAPI parser
   collectors/
     headers.py       # parse_headers, parse_csp               (pure)
     html_js.py       # frameworks/CMS, bundles, third-parties, secret leaks; enrich_bundles (fetcher)
@@ -71,6 +72,9 @@ docs/design.md       # the design doc / why
   keep private file permissions, and never persist unredacted credentials.
 - **Source-map artifacts are bounded and first-party only.** Keep the 4 MB cap,
   sanitize before writing, and honor CLI/MCP `--no-artifacts`.
+- **Referenced API paths are not live endpoints.** Inventory source-map paths
+  passively. Do not probe all paths or execute mutating methods based on an
+  embedded spec; do not infer missing authorization from absent declarations.
 - **Network attribution is observed infrastructure.** DNS A/AAAA addresses can
   be CDN edges and can differ from the HTTP connection peer. Never call them
   origin IPs or infer app operators from ASN/registry names.
