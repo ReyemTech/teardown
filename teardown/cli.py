@@ -12,18 +12,30 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as _dt
+import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from .analyze import analyze_host, build_aggregate
 from .enumerate import enumerate_subdomains, probe_live
 from .http_client import Fetcher, FetchResponse, HttpClient
+from .history import HistoryStore, ensure_data_home
 from .models import HostTeardown, ScanResult
 from .render import write_outputs
 from .safety import registrable_domain, safe_url
 from .scan_modules import ScanContext, ScanModule, default_modules, run_modules
+from .terminal import CliReporter, print_comparison, print_history
+
+ProgressCallback = Callable[[str, dict[str, object]], None]
+
+
+def _emit(callback: ProgressCallback | None, event: str, **details: object) -> None:
+    if callback:
+        callback(event, details)
 
 
 def _now() -> str:
@@ -72,7 +84,8 @@ def _base_url(final_url: str, fallback: str) -> str:
 
 async def teardown_host(url: str, fetcher: Fetcher,
                         initial_response: FetchResponse | None = None,
-                        modules: Sequence[ScanModule] | None = None) -> HostTeardown:
+                        modules: Sequence[ScanModule] | None = None,
+                        on_module: Callable[[str, bool], None] | None = None) -> HostTeardown:
     """Run the full single-host collection pipeline. Never raises."""
     host_name = urlsplit(url).hostname or url
     host = HostTeardown(target=safe_url(url) or url, host=host_name, scanned_at=_now())
@@ -92,7 +105,7 @@ async def teardown_host(url: str, fetcher: Fetcher,
     try:
         context = ScanContext(host=host, response=resp, fetcher=fetcher,
                               base_url=base, html=resp.text or "")
-        await run_modules(context, modules)
+        await run_modules(context, modules, on_module=on_module)
         host.opsec_findings = analyze_host(host)
     except Exception as exc:  # noqa: BLE001 - collection is best-effort per host
         host.errors.append(f"collection error: {type(exc).__name__}")
@@ -113,46 +126,87 @@ async def run_scan(
     use_subfinder: bool = False,
     cache_dir: str | None = None,
     modules: Sequence[ScanModule] | None = None,
+    data_dir: str | None = None,
+    history: HistoryStore | None = None,
+    on_event: ProgressCallback | None = None,
 ) -> ScanResult:
     url, _host, root = _normalize(target)
     result = ScanResult(root_domain=root, scanned_at=_now())
 
-    effective_cache = (str(Path.cwd() / ".teardown-cache")
+    effective_cache = (str(ensure_data_home(data_dir) / "cache")
                        if cache_dir is None else cache_dir)
-    async with HttpClient(concurrency=concurrency, rate_per_sec=rate_per_sec,
-                          root_domain=root, cache_dir=effective_cache) as client:
-        if single:
-            live = [(url, None)]
-            result.enumeration.sources = ["single-host"]
-            result.enumeration.subdomains_found = 1
-        else:
-            subs, enum_info = await enumerate_subdomains(
-                root, client, active_dns=active_dns, wordlist=wordlist,
-                use_subfinder=use_subfinder,
-            )
-            live = await probe_live(subs, client, max_probes=max_probes,
-                                    preferred_host=root)
-            enum_info.live_hosts = len(live)
-            result.enumeration = enum_info
+    scan_id = history.start(root, safe_url(url) or root, result.scanned_at) if history else None
+    _emit(on_event, "start", target=root, scan_id=scan_id or "")
+    try:
+        async with HttpClient(concurrency=concurrency, rate_per_sec=rate_per_sec,
+                              root_domain=root, cache_dir=effective_cache) as client:
+            if single:
+                live = [(url, None)]
+                result.enumeration.sources = ["single-host"]
+                result.enumeration.subdomains_found = 1
+            else:
+                subs, enum_info = await enumerate_subdomains(
+                    root, client, active_dns=active_dns, wordlist=wordlist,
+                    use_subfinder=use_subfinder,
+                    on_source=lambda source, count: _emit(
+                        on_event, "source", source=source, count=count),
+                )
+                _emit(on_event, "enumerated", count=len(subs))
+                live = await probe_live(
+                    subs, client, max_probes=max_probes, preferred_host=root,
+                    on_probe=lambda host, reachable, done, total: _emit(
+                        on_event, "probe", host=host, reachable=reachable,
+                        done=done, total=total),
+                )
+                enum_info.live_hosts = len(live)
+                result.enumeration = enum_info
 
-        if max_hosts > 0:
-            live = live[:max_hosts]
-        result.enumeration.live_hosts = len(live)
+            if max_hosts > 0:
+                live = live[:max_hosts]
+            result.enumeration.live_hosts = len(live)
+            _emit(on_event, "live", count=len(live), found=result.enumeration.subdomains_found)
 
-        selected_modules = default_modules() if modules is None else tuple(modules)
-        tasks = [teardown_host(u, client, resp, modules=selected_modules)
-                 for u, resp in live]
-        result.hosts = list(await asyncio.gather(*tasks)) if tasks else []
+            selected_modules = default_modules() if modules is None else tuple(modules)
+            completed = 0
 
-    result.aggregate = build_aggregate(result.hosts)
-    return result
+            async def scan_one(host_url: str, response: FetchResponse | None) -> HostTeardown:
+                nonlocal completed
+                host_name = urlsplit(host_url).hostname or host_url
+                _emit(on_event, "host_start", host=host_name)
+                host = await teardown_host(
+                    host_url, client, response, modules=selected_modules,
+                    on_module=lambda name, success: _emit(
+                        on_event, "module", host=host_name, module=name,
+                        success=success),
+                )
+                if history and scan_id:
+                    history.checkpoint(scan_id, host)
+                completed += 1
+                _emit(on_event, "host_done", host=host_name, done=completed,
+                      total=len(live), findings=len(host.opsec_findings),
+                      reachable=host.reachable)
+                return host
+
+            tasks = [scan_one(u, resp) for u, resp in live]
+            result.hosts = list(await asyncio.gather(*tasks)) if tasks else []
+
+        result.aggregate = build_aggregate(result.hosts)
+        if history and scan_id:
+            history.finish(scan_id, result)
+        _emit(on_event, "finished", hosts=len(result.hosts), scan_id=scan_id or "")
+        return result
+    except BaseException:
+        if history and scan_id:
+            history.fail(scan_id)
+        raise
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="teardown",
         description="Passive web-app architecture teardown with subdomain fan-out.",
-        epilog="Other commands: teardown diff OLD NEW; teardown fingerprints update",
+        epilog="Other commands: teardown history DOMAIN; teardown compare DOMAIN; "
+               "teardown diff OLD NEW; teardown fingerprints update",
     )
     p.add_argument("target", help="Domain or URL (e.g. example.com or https://example.com)")
     p.add_argument("--single", action="store_true",
@@ -162,8 +216,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--subfinder", action="store_true",
                    help="Use installed subfinder for additional passive sources.")
     p.add_argument("--cache-dir", default=None,
-                   help="Directory for daily sanitized response cache (default: .teardown-cache).")
+                   help="Directory for daily sanitized response cache (default: ~/.teardown/cache).")
     p.add_argument("--no-cache", action="store_true", help="Disable response cache.")
+    p.add_argument("--data-dir", default=None,
+                   help="Data home for reports, cache and history (default: ~/.teardown).")
+    p.add_argument("--no-history", action="store_true",
+                   help="Do not save this scan to SQLite history.")
     p.add_argument("--wordlist", default=None,
                    help="Path to a newline-delimited subdomain wordlist for --active-dns.")
     p.add_argument("--max-hosts", type=_nonnegative_int, default=25,
@@ -174,12 +232,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Max concurrent requests. Default 10.")
     p.add_argument("--rate", type=_positive_float, default=8.0,
                    help="Global requests/sec cap. Default 8.")
-    p.add_argument("--out-dir", default=".",
-                   help="Directory for the JSON + markdown outputs. Default cwd.")
+    p.add_argument("--out-dir", default=None,
+                   help="Directory for JSON + markdown (default: ~/.teardown/reports/DOMAIN).")
     p.add_argument("--name", default=None,
                    help="Output basename (default: derived from root domain).")
     p.add_argument("--json-only", action="store_true",
-                   help="Print JSON to stdout and skip writing files.")
+                   help="Print JSON to stdout and skip report files; history still saves.")
+    verbosity = p.add_mutually_exclusive_group()
+    verbosity.add_argument("-q", "--quiet", action="store_true", help="Suppress scan status.")
+    verbosity.add_argument("-v", "--verbose", action="count", default=0,
+                           help="Show host details; use -vv for module details.")
+    p.add_argument("--no-color", action="store_true", help="Disable terminal colors.")
     return p
 
 
@@ -190,9 +253,38 @@ def main(argv: list[str] | None = None) -> int:
         diff_parser.add_argument("old")
         diff_parser.add_argument("new")
         paths = diff_parser.parse_args(argv[1:])
-        import json
         from .diff import diff_files
         print(json.dumps(diff_files(paths.old, paths.new), indent=2, sort_keys=True))
+        return 0
+    if argv and argv[0] in {"history", "compare"}:
+        command = argv[0]
+        parser = argparse.ArgumentParser(prog=f"teardown {command}")
+        parser.add_argument("domain")
+        parser.add_argument("--data-dir", default=None)
+        parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+        parser.add_argument("--no-color", action="store_true")
+        if command == "history":
+            parser.add_argument("--limit", type=_positive_int, default=20)
+        else:
+            parser.add_argument("--days", type=_positive_int, default=None,
+                                help="Compare with latest scan at least N days older.")
+        options = parser.parse_args(argv[1:])
+        root = _normalize(options.domain)[2]
+        try:
+            with HistoryStore(options.data_dir) as history:
+                if command == "history":
+                    payload = history.list_scans(root, limit=options.limit)
+                else:
+                    payload = history.compare(root, days=options.days)
+        except ValueError as exc:
+            print(f"teardown {command}: {exc}", file=sys.stderr)
+            return 2
+        if options.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        elif command == "history":
+            print_history(root, payload, no_color=options.no_color)
+        else:
+            print_comparison(payload, no_color=options.no_color)
         return 0
     if argv[:2] == ["fingerprints", "update"]:
         from .fingerprints import update_external_database, external_db_path
@@ -209,31 +301,40 @@ def main(argv: list[str] | None = None) -> int:
     _url, _host, root = _normalize(args.target)
     basename = args.name or root.replace(".", "-")
 
-    result = asyncio.run(run_scan(
-        args.target,
-        single=args.single,
-        active_dns=args.active_dns,
-        wordlist=wordlist,
-        max_hosts=args.max_hosts,
-        max_probes=args.max_probes,
-        concurrency=args.concurrency,
-        rate_per_sec=args.rate,
-        use_subfinder=args.subfinder,
-        cache_dir="" if args.no_cache else args.cache_dir,
-    ))
+    history_context = nullcontext(None) if args.no_history else HistoryStore(args.data_dir)
+    with history_context as history, CliReporter(
+        verbosity=args.verbose, quiet=args.quiet, no_color=args.no_color,
+    ) as reporter:
+        result = asyncio.run(run_scan(
+            args.target,
+            single=args.single,
+            active_dns=args.active_dns,
+            wordlist=wordlist,
+            max_hosts=args.max_hosts,
+            max_probes=args.max_probes,
+            concurrency=args.concurrency,
+            rate_per_sec=args.rate,
+            use_subfinder=args.subfinder,
+            cache_dir="" if args.no_cache else args.cache_dir,
+            data_dir=args.data_dir,
+            history=history,
+            on_event=reporter,
+        ))
+
+        paths = None
+        if not args.json_only:
+            if args.out_dir is None:
+                out_dir = ensure_data_home(args.data_dir) / "reports" / root
+                stamp = result.scanned_at.replace(":", "").replace("-", "")
+                basename = f"{args.name or basename}-{stamp}-{uuid4().hex[:8]}"
+            else:
+                out_dir = Path(args.out_dir)
+            paths = write_outputs(result, str(out_dir), basename)
+        reporter.summary(result, paths)
 
     if args.json_only:
-        import json
         from .models import to_dict
         print(json.dumps(to_dict(result), indent=2))
-    else:
-        paths = write_outputs(result, args.out_dir, basename)
-        print(f"hosts torn down : {len(result.hosts)}")
-        print(f"live / found    : {result.enumeration.live_hosts} / "
-              f"{result.enumeration.subdomains_found}")
-        print(f"critical findings: {len(result.aggregate.critical_findings)}")
-        print(f"JSON -> {paths['json']}")
-        print(f"MD   -> {paths['md']}")
     return 0
 
 

@@ -12,6 +12,7 @@ import asyncio
 import json
 import re
 import shutil
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -118,6 +119,7 @@ async def enumerate_subdomains(
     active_dns: bool = False,
     wordlist: list[str] | None = None,
     use_subfinder: bool = False,
+    on_source: Callable[[str, int], None] | None = None,
 ) -> tuple[list[str], EnumerationInfo]:
     """Enumerate subdomains of ``domain``.
 
@@ -148,15 +150,21 @@ async def enumerate_subdomains(
             break
         if attempt < 3:
             await asyncio.sleep(CRTSH_RETRY_BACKOFF * (attempt + 1))
+    if on_source:
+        on_source("crt.sh", len(hosts))
 
     for name, source in PASSIVE_SOURCES.items():
         found = await source(domain, fetcher)
         if found:
             hosts |= found
             sources.append(name)
+        if on_source:
+            on_source(name, len(hosts))
     if use_subfinder and shutil.which("subfinder"):
         hosts |= await _subfinder(domain)
         sources.append("subfinder")
+        if on_source:
+            on_source("subfinder", len(hosts))
 
     # --- Active: DNS brute force (opt-in) ---
     if active_dns:
@@ -165,6 +173,8 @@ async def enumerate_subdomains(
         if resolved:
             hosts |= resolved
         sources.append("dns-brute")
+        if on_source:
+            on_source("dns-brute", len(hosts))
 
     ordered = sorted(hosts)
     info = EnumerationInfo(
@@ -206,6 +216,7 @@ async def _dns_brute(domain: str, words: list[str]) -> set[str]:
 async def probe_live(
     hosts: list[str], fetcher: Fetcher, max_probes: int = 100,
     preferred_host: str | None = None,
+    on_probe: Callable[[str, bool, int, int], None] | None = None,
 ) -> list[tuple[str, FetchResponse]]:
     """Return reachable URLs and their first responses, preferring HTTPS.
 
@@ -213,20 +224,32 @@ async def probe_live(
     Concurrency is handled by the fetcher's internal semaphore.
     """
 
+    ordered = ([preferred_host] + [h for h in hosts if h != preferred_host]
+               if preferred_host in hosts else hosts)
+    candidates = ordered[:max_probes] if max_probes > 0 else ordered
+    done = 0
+
     async def _probe(host: str) -> tuple[str, FetchResponse] | None:
+        nonlocal done
         https = f"https://{host}"
         resp = await fetcher.get(https)
         if resp.status is not None:
+            done += 1
+            if on_probe:
+                on_probe(host, True, done, len(candidates))
             return https, resp
         http = f"http://{host}"
         resp = await fetcher.get(http)
         if resp.status is not None:
+            done += 1
+            if on_probe:
+                on_probe(host, True, done, len(candidates))
             return http, resp
+        done += 1
+        if on_probe:
+            on_probe(host, False, done, len(candidates))
         return None
 
-    ordered = ([preferred_host] + [h for h in hosts if h != preferred_host]
-               if preferred_host in hosts else hosts)
-    candidates = ordered[:max_probes] if max_probes > 0 else ordered
     results = await asyncio.gather(*(_probe(h) for h in candidates))
     return [item for item in results if item is not None]
 

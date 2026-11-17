@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 
 from .cli import run_scan
+from .history import HistoryStore
 from .models import to_dict
 
 
-def create_server():
+def create_server(*, history_enabled: bool = True, data_dir: str | None = None):
     try:
         from fastmcp import FastMCP
     except ImportError as exc:
@@ -16,10 +18,15 @@ def create_server():
 
     server = FastMCP("teardown")
 
+    async def stored_scan(target: str, **kwargs):
+        context = HistoryStore(data_dir) if history_enabled else nullcontext(None)
+        with context as history:
+            return await run_scan(target, data_dir=data_dir, history=history, **kwargs)
+
     @server.tool
     async def teardown_host(url: str) -> dict:
         """Collect public frontend signals for one host."""
-        result = await run_scan(url, single=True, active_dns=False, wordlist=None,
+        result = await stored_scan(url, single=True, active_dns=False, wordlist=None,
                                 max_hosts=1, max_probes=1, concurrency=10,
                                 rate_per_sec=8.0)
         return to_dict(result.hosts[0])
@@ -28,7 +35,7 @@ def create_server():
     async def teardown_domain(domain: str, max_hosts: int = 25, max_probes: int = 100,
                               active_dns: bool = False, use_subfinder: bool = False) -> dict:
         """Collect a full domain ScanResult; active DNS is opt-in."""
-        result = await run_scan(domain, single=False, active_dns=active_dns, wordlist=None,
+        result = await stored_scan(domain, single=False, active_dns=active_dns, wordlist=None,
                                 max_hosts=max_hosts, max_probes=max_probes,
                                 concurrency=10, rate_per_sec=8.0,
                                 use_subfinder=use_subfinder)
@@ -50,7 +57,7 @@ def create_server():
     async def scan_domain(domain: str, single: bool = False, max_hosts: int = 25,
                           max_probes: int = 100) -> dict:
         """Collect public frontend signals for a domain with bounded passive scanning."""
-        result = await run_scan(domain, single=single, active_dns=False, wordlist=None,
+        result = await stored_scan(domain, single=single, active_dns=False, wordlist=None,
                                 max_hosts=max_hosts, max_probes=max_probes,
                                 concurrency=10, rate_per_sec=8.0)
         return to_dict(result)
@@ -69,8 +76,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--transport", choices=("stdio", "http"), default="stdio")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--data-dir", default=None,
+                        help="Data home for cache and SQLite history (default: ~/.teardown).")
+    parser.add_argument("--no-history", action="store_true",
+                        help="Do not save MCP scan results to SQLite history.")
     args = parser.parse_args(argv)
-    server = create_server()
+    server = create_server(history_enabled=not args.no_history, data_dir=args.data_dir)
     if args.transport == "http":
         server.run(transport="http", host=args.host, port=args.port)
     else:

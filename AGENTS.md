@@ -31,6 +31,8 @@ teardown/
   scan_modules.py   # ordered, injectable host collectors
   data/             # bundled MIT fingerprints and attribution
   cache.py          # sanitized daily response cache
+  history.py        # private SQLite history + per-host checkpoints
+  terminal.py       # CLI progress and styled history/compare output
   collectors/
     headers.py       # parse_headers, parse_csp               (pure)
     html_js.py       # frameworks/CMS, bundles, third-parties, secret leaks; enrich_bundles (fetcher)
@@ -60,6 +62,10 @@ docs/design.md       # the design doc / why
   source adapters must stay bounded and scope-filtered.
 - **Politeness lives in `HttpClient`** (bounded semaphore + token-bucket rate limit +
   identifying UA). Don't bypass it with raw httpx calls.
+- **Machine JSON stays on stdout.** Progress and scan summaries go to stderr;
+  `--json-only` skips report files but still saves SQLite history unless disabled.
+- **Local data defaults to `~/.teardown`.** Honor `--data-dir`/`TEARDOWN_HOME`,
+  keep private file permissions, and never persist unredacted credentials.
 - `from __future__ import annotations` at the top of every module; `requires-python
   >= 3.10`.
 
