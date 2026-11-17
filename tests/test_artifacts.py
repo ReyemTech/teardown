@@ -17,8 +17,10 @@ from teardown.models import Bundle
 class FakeFetcher:
     def __init__(self, responses):
         self.responses = responses
+        self.calls = []
 
     async def get(self, url, **_kwargs):
+        self.calls.append(url)
         return self.responses.get(url, FetchResponse(url=url, final_url=url, status=None))
 
 
@@ -80,6 +82,18 @@ def test_artifact_store_redacts_quoted_secret_properties(tmp_path):
     assert "pw:123" not in saved
 
 
+def test_saved_map_redacts_relative_url_query_credentials(tmp_path):
+    store = ArtifactStore(tmp_path / "artifacts")
+    secret = "shortpass"
+    saved = store.save_map({
+        "version": 3, "mappings": "AAAA",
+        "sources": ["src/app.js?token=" + secret],
+        "sourcesContent": ["const url='/api/data?token=" + secret + "';"],
+    })
+    assert saved
+    assert secret not in open(saved.local_path, encoding="utf-8").read()
+
+
 @pytest.mark.asyncio
 async def test_enrich_saves_only_first_party_exposed_map(tmp_path):
     first = "https://app.example.com/assets/app.js"
@@ -101,6 +115,44 @@ async def test_enrich_saves_only_first_party_exposed_map(tmp_path):
     assert bundles[1].has_sourcemap
     assert bundles[1].source_artifact is None
     assert bundles[1].sourcemap_artifact is None
+
+
+@pytest.mark.asyncio
+async def test_first_party_map_intel_is_available_without_artifact_saving():
+    first = "https://app.example.com/app.js"
+    third = "https://cdn.vendor.com/sdk.js"
+    spec = {"openapi": "3.0.3", "paths": {"/api/users": {"get": {}}}}
+    mapping = {"version": 3, "sources": ["src/static.js"], "mappings": "AAAA",
+               "sourcesContent": ["const api = " + json.dumps(spec) + ";"]}
+    fetcher = FakeFetcher({
+        first + ".map": response(first + ".map", json.dumps(mapping)),
+        first: response(first, "const app=true;"),
+        third + ".map": response(third + ".map", json.dumps(mapping)),
+        third: response(third, "const sdk=true;"),
+    })
+    bundles = await enrich_bundles([Bundle(first), Bundle(third)], fetcher,
+                                   host_name="app.example.com")
+    assert bundles[0].source_map_intel is not None
+    assert bundles[0].source_map_intel.embedded_openapi.path_count == 1
+    assert bundles[0].sourcemap_artifact is None
+    assert bundles[1].source_map_intel is None
+    assert not any("/api/users" in url for url in fetcher.calls)
+
+
+@pytest.mark.asyncio
+async def test_malformed_map_artifact_does_not_skip_bundle_analysis(tmp_path):
+    url = "https://app.example.com/app.js"
+    mapping = {"version": 3, "sources": ["src/app.js"],
+               "mappings": "AAAA", "sourcesContent": ["\ud800"]}
+    fetcher = FakeFetcher({
+        url + ".map": response(url + ".map", json.dumps(mapping)),
+        url: response(url, 'const endpoint = "/graphql";'),
+    })
+    bundle = (await enrich_bundles([Bundle(url)], fetcher,
+                                   artifact_store=ArtifactStore(tmp_path / "artifacts"),
+                                   host_name="app.example.com"))[0]
+    assert "graphql" in bundle.interesting_tokens
+    assert bundle.sourcemap_artifact is None
 
 
 @pytest.mark.asyncio

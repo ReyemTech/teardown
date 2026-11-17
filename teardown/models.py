@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-SCHEMA_VERSION = "1.5"
+SCHEMA_VERSION = "1.6"
 
 
 class Severity(str, Enum):
@@ -65,6 +65,7 @@ class Bundle:
     source_map_sources: int = 0
     source_artifact: ArtifactRef | None = None
     sourcemap_artifact: ArtifactRef | None = None
+    source_map_intel: SourceMapIntel | None = None
 
 
 @dataclass
@@ -73,6 +74,46 @@ class ArtifactRef:
     sha256: str
     bytes: int
     redacted: bool = True
+
+
+@dataclass
+class SourceMapSource:
+    path: str
+    kind: str
+    embedded: bool
+
+
+@dataclass
+class ApiPathReference:
+    path: str
+    methods: list[str] = field(default_factory=list)
+
+
+@dataclass
+class EmbeddedOpenApi:
+    source_path: str
+    version: str
+    path_count: int
+    operation_count: int
+    schema_count: int
+    methods: dict[str, int] = field(default_factory=dict)
+    paths: list[ApiPathReference] = field(default_factory=list)
+    paths_omitted: int = 0
+    schema_names: list[str] = field(default_factory=list)
+    schemas_omitted: int = 0
+
+
+@dataclass
+class SourceMapIntel:
+    total_sources: int
+    embedded_sources: int
+    application_sources: int
+    dependency_sources: int
+    sources: list[SourceMapSource] = field(default_factory=list)
+    sources_omitted: int = 0
+    referenced_api_paths: list[str] = field(default_factory=list)
+    routes_omitted: int = 0
+    embedded_openapi: EmbeddedOpenApi | None = None
 
 
 @dataclass
