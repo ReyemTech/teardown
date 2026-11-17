@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.0 (2026-11-17)
+
+### Features
+
+- Add approximate Geo-IP attribution
+  ([`b0b75f6`](https://github.com/ReyemTech/teardown/commit/b0b75f60516882009d162bf80764d068eed28e64))
+
+
 ## v0.3.0 (2026-11-17)
 
 ### Features
