@@ -26,6 +26,7 @@ from .collectors.html_js import (
 from .fingerprints import detect_technologies, framework_names
 from .http_client import Fetcher, FetchResponse
 from .models import HostTeardown, to_dict
+from .network import collect_network
 from .safety import safe_text
 
 _NAME = re.compile(r"[a-z][a-z0-9_]*\Z")
@@ -90,6 +91,10 @@ async def _fingerprints(context: ScanContext) -> None:
             host.cms.type = max(cms_matches, key=lambda item: item.confidence).name.lower()
 
 
+async def _network(context: ScanContext) -> None:
+    context.host.network = await collect_network(context.host, context.fetcher)
+
+
 async def _bundles(context: ScanContext) -> None:
     bundles = extract_bundles(context.html, context.base_url)
     context.host.bundles = await enrich_bundles(bundles, context.fetcher)
@@ -109,6 +114,7 @@ async def _api(context: ScanContext) -> None:
 
 _BUILTIN_MODULES = (
     ScanModule("http", _http),
+    ScanModule("network", _network),
     ScanModule("fingerprints", _fingerprints),
     ScanModule("bundles", _bundles),
     ScanModule("third_parties", _third_parties),

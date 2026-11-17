@@ -15,7 +15,7 @@ signals only** — no auth, no exploitation. Given a domain it:
    REST/GraphQL/OpenAPI/WordPress API surface, third-party fingerprints, redacted
    secret leaks, OPSEC findings.
 4. Emits an **agent-readable JSON contract** (`ScanResult`/`HostTeardown`, schema
-   1.2) plus a vault-compatible markdown rendering and cross-run diff.
+   1.3) plus a vault-compatible markdown rendering and cross-run diff.
 
 The guiding split: **deterministic collection (this code) vs. interpretation (the
 agent that reads the JSON).** Keep narrative/judgment out of the tool; it produces
@@ -33,6 +33,7 @@ teardown/
   cache.py          # sanitized daily response cache
   history.py        # private SQLite history + per-host checkpoints
   terminal.py       # CLI progress and styled history/compare output
+  network.py        # bounded DNS + RIPEstat route/registration attribution
   collectors/
     headers.py       # parse_headers, parse_csp               (pure)
     html_js.py       # frameworks/CMS, bundles, third-parties, secret leaks; enrich_bundles (fetcher)
@@ -66,6 +67,9 @@ docs/design.md       # the design doc / why
   `--json-only` skips report files but still saves SQLite history unless disabled.
 - **Local data defaults to `~/.teardown`.** Honor `--data-dir`/`TEARDOWN_HOME`,
   keep private file permissions, and never persist unredacted credentials.
+- **Network attribution is observed infrastructure.** DNS A/AAAA addresses can
+  be CDN edges and can differ from the HTTP connection peer. Never call them
+  origin IPs or infer app operators from ASN/registry names.
 - `from __future__ import annotations` at the top of every module; `requires-python
   >= 3.10`.
 

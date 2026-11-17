@@ -28,7 +28,7 @@ def _response(url: str, html: str = "") -> FetchResponse:
 
 def test_builtin_module_order_is_explicit():
     assert [module.name for module in default_modules()] == [
-        "http", "fingerprints", "bundles", "third_parties", "secrets", "api"]
+        "http", "network", "fingerprints", "bundles", "third_parties", "secrets", "api"]
 
 
 def test_extension_redacts_secret_values_even_under_public_keys():

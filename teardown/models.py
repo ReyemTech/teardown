@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 
 
 class Severity(str, Enum):
@@ -133,6 +133,35 @@ class Detection:
 
 
 @dataclass
+class DnsObservation:
+    addresses: list[str] = field(default_factory=list)
+    cname_chain: list[str] = field(default_factory=list)
+    truncated: bool = False
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NetworkAddress:
+    address: str
+    prefix: str | None = None
+    asns: list[int] = field(default_factory=list)
+    asn_holders: dict[str, str] = field(default_factory=dict)
+    registered_holder: str | None = None
+    network_name: str | None = None
+    registry: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NetworkInfo:
+    observation: str = "unknown"
+    dns: DnsObservation = field(default_factory=DnsObservation)
+    addresses: list[NetworkAddress] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
 class HostTeardown:
     target: str                      # original URL as scanned
     host: str                        # hostname
@@ -148,6 +177,7 @@ class HostTeardown:
     third_parties: list[ThirdParty] = field(default_factory=list)
     secret_leaks: list[SecretLeak] = field(default_factory=list)
     opsec_findings: list[OpsecFinding] = field(default_factory=list)
+    network: NetworkInfo = field(default_factory=NetworkInfo)
     extensions: dict[str, dict[str, Any]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 

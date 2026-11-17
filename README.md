@@ -35,7 +35,8 @@ python3 -m venv .venv
 .venv/bin/teardown example.com --single
 ```
 
-`dnspython` is only needed for `--active-dns`; the passive path runs without it.
+`dnspython` handles bounded DNS lookups for network attribution. The wordlist
+enumeration path remains opt-in with `--active-dns`.
 
 ## Usage
 
@@ -118,7 +119,7 @@ inside a `ScanResult` rollup. Shapes are defined in `teardown/models.py`
 (`SCHEMA_VERSION`). An agent should consume the JSON and narrate; the markdown is
 for humans.
 
-Schema 1.2 adds `detections` per host, `aggregate.detections_union`, and
+Schema 1.2 added `detections` per host, `aggregate.detections_union`, and
 namespaced `extensions` for additional scan modules. Each detection
 record has a technology name,
 categories, deterministic `confidence` (0–100), and signal labels in `evidence`.
@@ -128,6 +129,18 @@ remain. `http` now includes page title, redirect status chain, observed TLS
 version/cipher/certificate expiry and CDN header fingerprint when available.
 `teardown diff` reports added and removed hosts plus field changes; scan times
 and volatile response headers are excluded.
+
+Schema 1.3 adds `network` per host: the observed A/AAAA addresses and CNAME
+chain, the routed prefix and originating ASN(s) reported by RIPE RIS, and
+public network registration names from RIR WHOIS. `network.observation` is
+`cdn_edge`, `observed_endpoint`, or `unknown`; it never claims to find the
+application origin. DNS answers can vary by resolver and may differ from the
+address used by the HTTP connection. A registered network holder may be an
+infrastructure provider rather than the app operator. The scan limits DNS
+collection to eight addresses and eight CNAME hops per host. These fields are
+saved in SQLite history and appear in `teardown compare` automatically.
+([RIPE network info](https://m.stat.ripe.net/docs/data-api/api-endpoints/network-info.html),
+[RIPE WHOIS](https://stat.ripe.net/docs/data-api/api-endpoints/whois))
 
 The wheel bundles 589 MIT-licensed fingerprints (588 from OpenTechAlyzer plus
 the Livewire definition). `teardown fingerprints update` downloads and converts
@@ -195,6 +208,7 @@ teardown/
   fingerprints.py # database matcher + optional WebAppAnalyzer importer
   scan_modules.py # ordered, injectable host scan modules
   cache.py        # sanitized daily response cache
+  network.py      # DNS, routed-prefix and registration attribution
   history.py      # SQLite scan history and host checkpoints
   terminal.py     # styled stderr progress and history tables
   collectors/
