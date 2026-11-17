@@ -12,8 +12,11 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
+from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+from .safety import in_scope, safe_headers, safe_url
 
 USER_AGENT = (
     "ReyemTech-Teardown/1.0 (+https://reyem.tech; passive architecture recon)"
@@ -22,6 +25,7 @@ DEFAULT_TIMEOUT = 15.0
 DEFAULT_RETRIES = 1
 DEFAULT_CONCURRENCY = 10
 DEFAULT_RATE_PER_SEC = 8.0
+DEFAULT_MAX_RESPONSE_BYTES = 8_000_000
 
 
 @dataclass
@@ -73,15 +77,21 @@ class HttpClient:
         rate_per_sec: float = DEFAULT_RATE_PER_SEC,
         timeout: float = DEFAULT_TIMEOUT,
         retries: int = DEFAULT_RETRIES,
+        root_domain: str | None = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._sem = asyncio.Semaphore(concurrency)
         self._rl = _RateLimiter(rate_per_sec)
         self._retries = retries
+        self._root_domain = root_domain
+        self._max_response_bytes = max_response_bytes
         self._client = httpx.AsyncClient(
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=timeout,
             headers={"User-Agent": USER_AGENT},
             verify=True,
+            transport=transport,
         )
 
     async def __aenter__(self) -> "HttpClient":
@@ -94,23 +104,59 @@ class HttpClient:
         return await self.request("GET", url, **kwargs)
 
     async def request(self, method: str, url: str, **kwargs) -> FetchResponse:
+        def allowed(candidate: str, *, crtsh: bool = False) -> bool:
+            parts = urlsplit(candidate)
+            if parts.scheme not in ("http", "https"):
+                return False
+            if crtsh:
+                return parts.scheme == "https" and parts.hostname == "crt.sh"
+            return self._root_domain is None or in_scope(candidate, self._root_domain)
+
+        crtsh = urlsplit(url).hostname == "crt.sh"
+        if not allowed(url, crtsh=crtsh):
+            return FetchResponse(url=safe_url(url) or "", final_url=safe_url(url) or "",
+                                 status=None, error="out-of-scope request blocked")
         last_err: str | None = None
         for attempt in range(self._retries + 1):
-            async with self._sem:
-                await self._rl.wait()
-                try:
-                    resp = await self._client.request(method, url, **kwargs)
-                    return FetchResponse(
-                        url=url,
-                        final_url=str(resp.url),
-                        status=resp.status_code,
-                        headers={k.lower(): v for k, v in resp.headers.items()},
-                        text=resp.text,
-                    )
-                except Exception as exc:  # noqa: BLE001 - never raise to collectors
-                    last_err = f"{type(exc).__name__}: {exc}"
+            current = url
+            try:
+                for _ in range(6):
+                    async with self._sem:
+                        await self._rl.wait()
+                        async with self._client.stream(method, current, **kwargs) as resp:
+                            if resp.is_redirect and "location" in resp.headers:
+                                destination = urljoin(current, resp.headers["location"])
+                                if not allowed(destination, crtsh=crtsh):
+                                    return FetchResponse(url=safe_url(url) or "",
+                                                         final_url=safe_url(current) or "",
+                                                         status=None, error="out-of-scope redirect blocked")
+                                current = destination
+                                if resp.status_code == 303:
+                                    method = "GET"
+                                    kwargs.pop("json", None)
+                                continue
+                            body = bytearray()
+                            truncated = False
+                            async for chunk in resp.aiter_bytes():
+                                room = self._max_response_bytes - len(body)
+                                body.extend(chunk[:max(room, 0)])
+                                if len(chunk) > room:
+                                    truncated = True
+                                    break
+                            return FetchResponse(
+                                url=safe_url(url) or "", final_url=safe_url(str(resp.url)) or "",
+                                status=resp.status_code,
+                                headers=safe_headers({k.lower(): v for k, v in resp.headers.items()}),
+                                text=body.decode(resp.encoding or "utf-8", errors="replace"),
+                                error=(f"response body truncated at {self._max_response_bytes} bytes"
+                                       if truncated else None),
+                            )
+                return FetchResponse(url=safe_url(url) or "", final_url=safe_url(current) or "",
+                                     status=None, error="redirect limit exceeded")
+            except Exception as exc:  # noqa: BLE001 - never raise to collectors
+                last_err = type(exc).__name__
             if attempt < self._retries:
                 await asyncio.sleep(0.5 * (attempt + 1))
         return FetchResponse(
-            url=url, final_url=url, status=None, error=last_err
+            url=safe_url(url) or "", final_url=safe_url(url) or "", status=None, error=last_err
         )

@@ -17,7 +17,7 @@ classifiers = [
     "Topic :: Security",
     "Environment :: Console",
 ]
-dependencies = ["httpx>=0.27,<1.0"]
+dependencies = ["httpx>=0.27,<1.0", "tldextract>=5.1,<6.0"]
 
 [project.optional-dependencies]
 active-dns = ["dnspython>=2.6,<3.0"]

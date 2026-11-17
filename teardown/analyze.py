@@ -17,6 +17,7 @@ from .models import (
     OpsecFinding,
     Severity,
 )
+from .safety import registrable_domain, source_map_url
 
 # A dotted version number ("nginx/1.18.0", "PHP/8.1") or a "/<digit>" suffix.
 _VERSION_RE = re.compile(r"\d+\.\d+|/\s*\d")
@@ -174,7 +175,7 @@ def analyze_host(host: HostTeardown) -> list[OpsecFinding]:
                         "internal paths). Vendor libraries served first-party leak the "
                         "library's source; app bundles leak your own."
                     ),
-                    evidence_url=f"{bundle.url}.map",
+                    evidence_url=source_map_url(bundle.url),
                 )
             )
 
@@ -312,9 +313,7 @@ def analyze_host(host: HostTeardown) -> list[OpsecFinding]:
 
 
 def _registrable(hostname: str) -> str:
-    """Naive registrable domain: last two labels. Good enough for first-party checks."""
-    labels = (hostname or "").split(".")
-    return ".".join(labels[-2:]) if len(labels) >= 2 else (hostname or "")
+    return registrable_domain(hostname or "")
 
 
 def _is_first_party(bundle_url: str, host_name: str) -> bool:

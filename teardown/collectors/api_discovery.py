@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 from ..http_client import Fetcher
 from ..models import (
@@ -45,6 +46,10 @@ def _base(base_url: str) -> str:
     return base_url.rstrip("/")
 
 
+def _same_host(base: str, response: object) -> bool:
+    return urlsplit(base).hostname == urlsplit(response.final_url).hostname
+
+
 async def discover_api(base_url: str, fetcher: Fetcher) -> ApiSurface:
     """Probe a host for exposed API surface. Never raises."""
     base = _base(base_url)
@@ -61,8 +66,12 @@ async def discover_api(base_url: str, fetcher: Fetcher) -> ApiSurface:
 async def _discover_rest(base: str, fetcher: Fetcher, surface: ApiSurface) -> None:
     for path in REST_PATHS:
         resp = await fetcher.get(base + path)
-        # Count anything that responds and is not a server error.
-        if resp.status is not None and resp.status < 500:
+        if not _same_host(base, resp):
+            continue
+        body = _try_json(resp.text)
+        if resp.status in (401, 403) or (
+            resp.status == 200 and isinstance(body, (dict, list))
+        ):
             surface.rest.append(RestEndpoint(path=path, status=resp.status))
 
 
@@ -70,10 +79,12 @@ async def _discover_openapi(base: str, fetcher: Fetcher, surface: ApiSurface) ->
     for path in OPENAPI_PATHS:
         url = base + path
         resp = await fetcher.get(url)
-        if resp.status is None:
+        if resp.status != 200 or not _same_host(base, resp):
             continue
         spec = _try_json(resp.text)
-        if not isinstance(spec, dict):
+        if not isinstance(spec, dict) or not isinstance(spec.get("paths"), dict):
+            continue
+        if not isinstance(spec.get("openapi"), str) and not isinstance(spec.get("swagger"), str):
             continue
         # A JSON doc that parses here counts as an OpenAPI/Swagger spec.
         endpoints: list[str] = []
@@ -89,7 +100,7 @@ async def _discover_graphql(base: str, fetcher: Fetcher, surface: ApiSurface) ->
     for path in GRAPHQL_PATHS:
         url = base + path
         resp = await fetcher.request("POST", url, json=INTROSPECTION_QUERY)
-        if resp.status is None:
+        if resp.status is None or not _same_host(base, resp):
             continue
 
         body = _try_json(resp.text)
@@ -112,9 +123,7 @@ async def _discover_graphql(base: str, fetcher: Fetcher, surface: ApiSurface) ->
 
         # Endpoint responded (and isn't a plain 404) → it exists but either
         # blocks introspection or returned a GraphQL error.
-        if resp.status != 404 and resp.status < 500:
-            present = True
-        elif isinstance(body, dict) and ("data" in body or "errors" in body):
+        if isinstance(body, dict) and ("data" in body or "errors" in body):
             present = True
 
     if present:
@@ -125,11 +134,20 @@ async def _discover_wordpress(base: str, fetcher: Fetcher, surface: ApiSurface) 
     wp = WordPressInfo()
 
     root = await fetcher.get(base + "/wp-json/")
-    if root.status is not None and _try_json(root.text) is not None:
+    root_body = _try_json(root.text)
+    namespaces = root_body.get("namespaces") if isinstance(root_body, dict) else None
+    routes = root_body.get("routes") if isinstance(root_body, dict) else None
+    has_wp_namespace = isinstance(namespaces, list) and "wp/v2" in namespaces
+    has_wp_route = isinstance(routes, dict) and any(
+        str(path).startswith("/wp/v2/") for path in routes
+    )
+    if (root.status == 200 and _same_host(base, root)
+            and isinstance(root_body, dict)
+            and (has_wp_namespace or has_wp_route)):
         wp.wp_json = True
 
     users_resp = await fetcher.get(base + "/wp-json/wp/v2/users")
-    if users_resp.status is not None:
+    if users_resp.status == 200 and _same_host(base, users_resp):
         body = _try_json(users_resp.text)
         if isinstance(body, list) and body:
             names: list[str] = []

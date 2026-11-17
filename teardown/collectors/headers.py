@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from teardown.http_client import FetchResponse
 from teardown.models import CspInfo, HttpInfo
+from teardown.safety import safe_headers, safe_url
 
 # CSP directives that name hosts the app talks to (the intel goldmine).
 _CSP_HOST_DIRECTIVES = (
@@ -53,7 +54,7 @@ def _lower_headers(headers: dict[str, str]) -> dict[str, str]:
 
 def parse_headers(resp: FetchResponse) -> HttpInfo:
     """Extract server, powered-by, security posture, and cache signals."""
-    headers = _lower_headers(resp.headers or {})
+    headers = safe_headers(_lower_headers(resp.headers or {}))
 
     security: dict[str, object] = {}
     if "strict-transport-security" in headers:
@@ -79,7 +80,7 @@ def parse_headers(resp: FetchResponse) -> HttpInfo:
 
     return HttpInfo(
         status=resp.status,
-        final_url=resp.final_url,
+        final_url=safe_url(resp.final_url),
         server=headers.get("server"),
         powered_by=headers.get("x-powered-by"),
         security_headers=security,
@@ -123,7 +124,7 @@ def parse_csp(headers: dict[str, str]) -> CspInfo:
     Note: the signature only receives headers, so the "site's own host" cannot
     be known here; self-references are already excluded via the 'self' keyword.
     """
-    headers = _lower_headers(headers or {})
+    headers = safe_headers(_lower_headers(headers or {}))
     raw = headers.get("content-security-policy") or headers.get(
         "content-security-policy-report-only"
     )

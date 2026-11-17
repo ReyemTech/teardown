@@ -54,7 +54,8 @@ git tag v<version> && git push origin v<version>
 ## Notes
 
 - `requires-python = ">=3.10"`.
-- Runtime dep: `httpx`. `dnspython` is an optional extra (`reyem-teardown[active-dns]`),
+- Runtime deps: `httpx` and `tldextract` (using its bundled public suffix list).
+  `dnspython` is an optional extra (`reyem-teardown[active-dns]`),
   only needed for `--active-dns`.
-- No PyPI trusted-publishing / CI release workflow is set up yet; this is a manual
-  `uv publish`. Add a GitHub Actions release job later if you want it automated.
+- CI runs tests on Python 3.10–3.14, builds distributions, and checks the
+  installed wheel's CLI. Publishing remains manual with `uv publish`.

@@ -141,13 +141,13 @@ def test_fingerprint_third_parties_keys():
         "<script>Sentry.init({dsn:'https://deadbeef0000@o42.ingest.sentry.io/1337'})</script>"
     )
     parties = {p.name: p for p in fingerprint_third_parties(html)}
-    assert parties["segment"].key == "abc123WRITEKEY"
+    assert parties["segment"].key == "abc123WR…"
     assert parties["segment"].category == "analytics"
-    assert parties["stripe"].key == "pk_live_51ABCdef0123456789"
+    assert parties["stripe"].key == "pk_live_…"
     assert parties["stripe"].category == "payments"
-    assert parties["google-analytics"].key == "G-ABCDE12345"
-    assert parties["posthog"].key == "phc_abcDEF1234567890abcDEF"
-    assert parties["sentry"].key == "https://deadbeef0000@o42.ingest.sentry.io/1337"
+    assert parties["google-analytics"].key == "G-ABCDE1…"
+    assert parties["posthog"].key == "phc_abcD…"
+    assert parties["sentry"].key == "https://…"
 
 
 def test_fingerprint_third_parties_none():
@@ -206,7 +206,7 @@ async def test_enrich_bundles_sourcemap_and_tokens():
         "openapi='3.0'; const k='pk_live_ABCDEFGH1234567890';"
     )
     responses = {
-        js_url + ".map": FetchResponse(url=js_url + ".map", final_url=js_url + ".map", status=200, text="{}"),
+        js_url + ".map": FetchResponse(url=js_url + ".map", final_url=js_url + ".map", status=200, text='{"version":3,"sources":["app.ts"],"mappings":"AAAA"}'),
         js_url: FetchResponse(url=js_url, final_url=js_url, status=200, text=body),
     }
     fetcher = FakeFetcher(responses)

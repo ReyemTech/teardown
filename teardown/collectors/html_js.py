@@ -11,10 +11,12 @@ raises (the Fetcher already swallows network errors).
 from __future__ import annotations
 
 import re
+import json
 from urllib.parse import urljoin
 
 from teardown.http_client import Fetcher
 from teardown.models import Bundle, CmsInfo, SecretLeak, ThirdParty
+from teardown.safety import redact_key, safe_url, source_map_url
 
 # --------------------------------------------------------------------------- #
 # Framework detection
@@ -163,10 +165,10 @@ def extract_bundles(html: str, base_url: str) -> list[Bundle]:
     """Collect <script src> (js) and <link rel=stylesheet> (css), URLs resolved."""
     text = html or ""
     bundles: list[Bundle] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
 
     def _add(raw_url: str, kind: str) -> None:
-        resolved = urljoin(base_url, raw_url.strip())
+        resolved = safe_url(urljoin(base_url, raw_url.strip())) or ""
         key = (kind, resolved)
         if resolved and key not in seen:
             seen.add(key)
@@ -330,7 +332,7 @@ def fingerprint_third_parties(html: str) -> list[ThirdParty]:
         if key_re is not None:
             km = key_re.search(text)
             if km:
-                key = km.group(1)
+                key = redact_key(km.group(1))
         found.append(
             ThirdParty(name=name, category=category, key=key, evidence=hit)
         )
@@ -438,9 +440,18 @@ async def enrich_bundles(
 
         try:
             # 1. Sourcemap probe.
-            map_resp = await fetcher.get(bundle.url + ".map")
+            map_resp = await fetcher.get(source_map_url(bundle.url))
             if map_resp.status == 200:
-                bundle.has_sourcemap = True
+                try:
+                    source_map = json.loads(map_resp.text)
+                except (TypeError, ValueError):
+                    source_map = None
+                bundle.has_sourcemap = (
+                    isinstance(source_map, dict)
+                    and source_map.get("version") == 3
+                    and isinstance(source_map.get("sources"), list)
+                    and isinstance(source_map.get("mappings"), str)
+                )
 
             # 2. Fetch + scan the bundle body.
             body_resp = await fetcher.get(bundle.url)

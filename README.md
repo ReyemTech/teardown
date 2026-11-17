@@ -1,8 +1,9 @@
 # Teardown Tool
 
-Passive web-app architecture reconnaissance with subdomain fan-out. The code
-version of the `teardown` agent: deterministic collection + an agent-readable
-JSON contract, plus a vault-compatible markdown rendering.
+Passive web-app architecture reconnaissance with subdomain fan-out. It collects
+public frontend signals and writes a versioned JSON record for agents plus a
+vault-compatible Markdown report for people. Collection is deterministic;
+interpretation belongs to the agent reading the JSON.
 
 **Passive recon only.** No authenticated access, no exploitation. Active DNS
 brute-force is opt-in (`--active-dns`) and off by default.
@@ -37,8 +38,11 @@ python3 -m venv .venv
 # Single host, no subdomain enumeration
 teardown example.com --single --out-dir .
 
-# Full: enumerate subdomains (crt.sh) + tear down each live host (cap 25)
+# Full: enumerate subdomains (crt.sh), check up to 100, tear down up to 25 live hosts
 teardown example.com --out-dir .
+
+# Limit liveness checks and host teardowns separately
+teardown example.com --max-probes 40 --max-hosts 10
 
 # Opt in to active DNS brute-force on top of crt.sh
 teardown example.com --active-dns --wordlist words.txt
@@ -55,6 +59,7 @@ teardown example.com --single --json-only
 | `--active-dns` | off | Add DNS brute-force (needs `dnspython`). |
 | `--wordlist PATH` | built-in | Wordlist for `--active-dns`. |
 | `--max-hosts N` | 25 | Cap live hosts torn down (0 = no cap). |
+| `--max-probes N` | 100 | Cap enumerated hosts checked for liveness (0 = no cap). |
 | `--concurrency N` | 10 | Max concurrent requests. |
 | `--rate R` | 8.0 | Global requests/sec cap. |
 | `--out-dir DIR` | `.` | Where JSON + markdown land. |
@@ -71,12 +76,34 @@ inside a `ScanResult` rollup. Shapes are defined in `teardown/models.py`
 (`SCHEMA_VERSION`). An agent should consume the JSON and narrate; the markdown is
 for humans.
 
+## How collection behaves
+
+- The registrable root domain comes from a bundled public suffix list, so a
+  target such as `app.example.co.uk` enumerates `example.co.uk`. This does not
+  fetch the suffix list during a scan. Private suffixes are respected, so
+  `app.foo.github.io` stays within the `foo.github.io` tenant.
+- The scan fetches only hosts under that root, plus `crt.sh` for passive
+  enumeration. It stops at redirects outside that scope. Third-party asset URLs
+  may appear in the result, but their bodies are not fetched.
+- Liveness checks stop after `--max-probes` candidates. The 25-host teardown cap
+  applies after liveness checks. Each HTTP response body is limited to 8 MB.
+- API paths count as observed only when their responses support the claim: REST
+  requires JSON or an access-denied status; GraphQL requires a GraphQL-shaped
+  response; OpenAPI requires a version marker and `paths` object. A generic
+  HTML fallback does not count. A source map must parse as a v3 source map.
+- Extracted keys are stored as prefixes, credential-bearing headers are
+  redacted, and sensitive URL query values are masked in output. Inspect the
+  JSON before sharing it: public pages can contain identifiers outside these
+  recognized patterns. Assets with credential-bearing query parameters are
+  listed with masked URLs and may not be fetchable for bundle enrichment.
+
 ## Architecture
 
 ```
 teardown/
   models.py       # versioned dataclasses — the contract
   http_client.py  # polite async httpx client + Fetcher protocol
+  safety.py       # output redaction + request scope checks
   collectors/
     headers.py    # headers + CSP
     html_js.py    # frameworks/CMS, bundles, third-parties, secret leaks
@@ -93,7 +120,7 @@ Design notes: [`docs/design.md`](docs/design.md).
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q    # 88 tests, offline
+.venv/bin/python -m pytest -q    # offline
 ```
 
 ## Notes & gotchas
@@ -104,4 +131,5 @@ Design notes: [`docs/design.md`](docs/design.md).
   jsdelivr) publishing maps for its own SDK is not the target's exposure, so those
   are skipped; first-party maps are flagged MEDIUM (info disclosure, not a
   credential leak).
-- **Secrets are never stored in full** — only a redacted prefix.
+- **Secrets are redacted at collection and output boundaries.** Third-party keys
+  keep only a prefix, and sensitive headers and URL query values are masked.

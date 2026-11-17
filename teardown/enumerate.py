@@ -141,7 +141,10 @@ async def _dns_brute(domain: str, words: list[str]) -> set[str]:
     return found
 
 
-async def filter_live(hosts: list[str], fetcher: Fetcher) -> list[str]:
+async def filter_live(
+    hosts: list[str], fetcher: Fetcher, max_probes: int = 100,
+    preferred_host: str | None = None,
+) -> list[str]:
     """Return reachable URLs for ``hosts``, preferring https over http.
 
     A host is live if a request to it returns any status (not None).
@@ -159,5 +162,8 @@ async def filter_live(hosts: list[str], fetcher: Fetcher) -> list[str]:
             return http
         return None
 
-    results = await asyncio.gather(*(_probe(h) for h in hosts))
+    ordered = ([preferred_host] + [h for h in hosts if h != preferred_host]
+               if preferred_host in hosts else hosts)
+    candidates = ordered[:max_probes] if max_probes > 0 else ordered
+    results = await asyncio.gather(*(_probe(h) for h in candidates))
     return [url for url in results if url is not None]

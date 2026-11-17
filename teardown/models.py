@@ -163,11 +163,17 @@ class ScanResult:
 def to_dict(obj: Any) -> Any:
     """Recursively convert dataclasses/enums to JSON-serializable dicts."""
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return {k: to_dict(v) for k, v in dataclasses.asdict(obj).items()}
+        return to_dict(dataclasses.asdict(obj))
     if isinstance(obj, Enum):
         return obj.value
     if isinstance(obj, dict):
-        return {k: to_dict(v) for k, v in obj.items()}
+        from .safety import safe_url
+        url_fields = {"target", "final_url", "source_url", "evidence_url", "url"}
+        return {k: safe_url(v) if k in url_fields and isinstance(v, str) else to_dict(v)
+                for k, v in obj.items()}
+    if isinstance(obj, str):
+        from .safety import safe_text
+        return safe_text(obj)
     if isinstance(obj, (list, tuple)):
         return [to_dict(v) for v in obj]
     return obj
