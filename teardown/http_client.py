@@ -11,11 +11,12 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from .models import DnsObservation
 from .safety import in_scope, safe_headers, safe_url
 
 USER_AGENT = (
@@ -48,6 +49,8 @@ class Fetcher(Protocol):
     async def get(self, url: str, **kwargs) -> FetchResponse: ...
 
     async def request(self, method: str, url: str, **kwargs) -> FetchResponse: ...
+
+    async def resolve_dns(self, host: str) -> DnsObservation: ...
 
 
 class _RateLimiter:
@@ -83,12 +86,14 @@ class HttpClient:
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         transport: httpx.AsyncBaseTransport | None = None,
         cache_dir: str | None = None,
+        dns_resolver: Any = None,
     ) -> None:
         self._sem = asyncio.Semaphore(concurrency)
         self._rl = _RateLimiter(rate_per_sec)
         self._retries = retries
         self._root_domain = root_domain
         self._max_response_bytes = max_response_bytes
+        self._dns_resolver = dns_resolver
         if cache_dir:
             from .cache import ResponseCache
             self._cache = ResponseCache(cache_dir)
@@ -111,18 +116,41 @@ class HttpClient:
     async def get(self, url: str, **kwargs) -> FetchResponse:
         return await self.request("GET", url, **kwargs)
 
+    async def resolve_dns(self, host: str) -> DnsObservation:
+        from .network import resolve_dns
+        import dns.asyncresolver
+
+        resolver = self._dns_resolver or dns.asyncresolver.Resolver()
+        if self._dns_resolver is None:
+            resolver.timeout = 3.0
+            resolver.lifetime = 5.0
+
+        class LimitedResolver:
+            async def resolve(_self, name: str, record_type: str):
+                async with self._sem:
+                    await self._rl.wait()
+                    return await resolver.resolve(name, record_type)
+
+        return await resolve_dns(host, LimitedResolver())
+
     async def request(self, method: str, url: str, **kwargs) -> FetchResponse:
-        def allowed(candidate: str, *, crtsh: bool = False) -> bool:
+        def allowed(candidate: str, *, external: bool = False) -> bool:
             parts = urlsplit(candidate)
             if parts.scheme not in ("http", "https"):
                 return False
-            if crtsh:
-                return parts.scheme == "https" and parts.hostname in {
-                    "crt.sh", "api.certspotter.com", "web.archive.org"}
+            if external:
+                if parts.scheme != "https":
+                    return False
+                if parts.hostname == "stat.ripe.net":
+                    return parts.path in {
+                        "/data/network-info/data.json", "/data/as-overview/data.json",
+                        "/data/whois/data.json"}
+                return parts.hostname in {"crt.sh", "api.certspotter.com", "web.archive.org"}
             return self._root_domain is None or in_scope(candidate, self._root_domain)
 
-        crtsh = urlsplit(url).hostname in {"crt.sh", "api.certspotter.com", "web.archive.org"}
-        if not allowed(url, crtsh=crtsh):
+        external = urlsplit(url).hostname in {"crt.sh", "api.certspotter.com", "web.archive.org",
+                                               "stat.ripe.net"}
+        if not allowed(url, external=external):
             return FetchResponse(url=safe_url(url) or "", final_url=safe_url(url) or "",
                                  status=None, error="out-of-scope request blocked")
         if method.upper() == "GET" and self._cache is not None:
@@ -141,7 +169,7 @@ class HttpClient:
                             if resp.is_redirect and "location" in resp.headers:
                                 chain.append(resp.status_code)
                                 destination = urljoin(current, resp.headers["location"])
-                                if not allowed(destination, crtsh=crtsh):
+                                if not allowed(destination, external=external):
                                     return FetchResponse(url=safe_url(url) or "",
                                                          final_url=safe_url(current) or "",
                                                          status=None, error="out-of-scope redirect blocked")

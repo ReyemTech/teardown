@@ -103,6 +103,10 @@ def _render_findings_block(host: HostTeardown) -> str:
     return "\n".join(lines).rstrip()
 
 
+def _network_cell(value: str | None) -> str:
+    return (value or "—").replace("|", "\\|").replace("\n", " ")
+
+
 def render_host_markdown(host: HostTeardown) -> str:
     """The single-host section (reused by render_markdown and usable standalone)."""
     lines: list[str] = [f"### {host.host or host.target or 'host'}", ""]
@@ -144,6 +148,34 @@ def render_host_markdown(host: HostTeardown) -> str:
             evidence = ", ".join(item.evidence[:3]).replace("|", "\\|").replace("\n", " ")
             lines.append(f"| {item.name} | {item.confidence}% | {evidence or '—'} |")
         lines.append("")
+
+    # Public DNS/routing evidence; never an origin claim.
+    lines.append("**Network attribution**")
+    lines.append("")
+    observation = {"cdn_edge": "CDN edge", "observed_endpoint": "Observed endpoint"}.get(
+        host.network.observation, "Unknown")
+    lines.append(f"- Address type: {observation} (DNS observation; origin not inferred)")
+    if host.network.dns.cname_chain:
+        lines.append("- CNAME chain: " + " → ".join(host.network.dns.cname_chain))
+    if host.network.dns.truncated:
+        lines.append("- DNS results truncated at the scan limit.")
+    if host.network.addresses:
+        lines.append("")
+        lines.append("| DNS address | Routed prefix | Origin ASN (holder) | Registered holder | Network name | Sources |")
+        lines.append("|-------------|---------------|---------------------|-------------------|--------------|---------|")
+        for entry in host.network.addresses:
+            asns = ", ".join(
+                f"AS{asn}" + (f" ({_network_cell(entry.asn_holders[str(asn)])})"
+                              if str(asn) in entry.asn_holders else "")
+                for asn in entry.asns)
+            lines.append(
+                f"| {_network_cell(entry.address)} | {_network_cell(entry.prefix)} | "
+                f"{asns or '—'} | {_network_cell(entry.registered_holder)} | "
+                f"{_network_cell(entry.network_name)} | {_network_cell(', '.join(entry.sources))} |"
+            )
+    else:
+        lines.append("- No DNS addresses observed.")
+    lines.append("")
 
     # API surface
     lines.append("**API surface**")
