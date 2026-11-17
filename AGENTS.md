@@ -77,8 +77,8 @@ python -m venv .venv && .venv/bin/pip install -e '.[active-dns]' pytest pytest-a
 uvx --from git+ssh://git@github.com/ReyemTech/teardown teardown example.com --single
 ```
 
-Publishing to PyPI: see `PUBLISHING.md` (manual `uv build` + `uv publish`; not yet
-on PyPI).
+Publishing to PyPI: see `PUBLISHING.md`. Merging a Conventional Commit to
+`main` automatically versions, tags, and publishes `tech-teardown`.
 
 ## Extending
 

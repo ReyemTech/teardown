@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -26,3 +24,4 @@ jobs:
       - run: python -m build
       - run: python -m pip install --force-reinstall dist/*.whl
       - run: teardown --help
+      - run: tech-teardown --help
