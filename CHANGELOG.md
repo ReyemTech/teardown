@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.6.0 (2026-11-17)
+
+### Features
+
+- Report source-map API intelligence
+  ([`afe2d13`](https://github.com/ReyemTech/teardown/commit/afe2d134e9f422e837936706d8361f256177d7dd))
+
+
 ## v0.5.0 (2026-11-17)
 
 ### Features
