@@ -12,13 +12,13 @@ brute-force is opt-in (`--active-dns`) and off by default.
 
 ```bash
 # Once published to PyPI:
-uvx reyem-teardown example.com --single
+uvx teardown example.com --single
 
 # Straight from the repo (works today):
 uvx --from git+https://github.com/ReyemTech/teardown teardown example.com --single
 ```
 
-The command is `teardown`; the distribution is `reyem-teardown`. `uvx` builds an
+The command and distribution are both `teardown`. `uvx` builds an
 ephemeral environment and runs it — nothing to install. For the active-DNS extra:
 `uvx --with dnspython --from git+https://github.com/ReyemTech/teardown teardown example.com --active-dns`.
 
@@ -117,10 +117,11 @@ teardown-mcp
 teardown-mcp --transport http --host 127.0.0.1 --port 8000
 ```
 
-The HTTP endpoint is `http://127.0.0.1:8000/mcp`. The tools are `scan_domain`
-(the same scan contract as the CLI) and `diff_scans` (two JSON objects). The
-default bind address is loopback. A Codex/Claude stdio configuration can invoke
-`teardown-mcp` as its command with no arguments.
+The HTTP endpoint is `http://127.0.0.1:8000/mcp`. The tools are
+`teardown_host`, `teardown_domain`, `enumerate_subdomains`, `scan_domain`
+(compatibility alias), and `diff_scans` (two JSON objects). They reuse the CLI
+collection path. The default bind address is loopback. See
+[`.mcp.json.example`](.mcp.json.example) for a stdio registration example.
 
 ## How collection behaves
 

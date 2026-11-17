@@ -11,8 +11,9 @@ enumeration plugins, reusable response cache, and a stable cross-run diff.
    derived from matches for existing readers. A user-invoked update command
    downloads WebAppAnalyzer's GPL-3.0 dataset into the user's local cache; the
    repository and wheel never redistribute that dataset.
-2. Add FastMCP as an optional package extra. Tools call the existing scan and
-   diff functions; stdio is the default transport. No separate request path.
+2. Add FastMCP as an optional package extra. Host, domain, enumeration and diff
+   tools call the existing functions; stdio is the default transport, with
+   Streamable HTTP selectable. No separate request path.
 3. Model passive sources behind one interface. Use crt.sh and keyless archive
    sources by default, with optional installed subfinder. All results pass the
    existing root-domain scope filter. Reuse the liveness response for the host

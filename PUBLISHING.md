@@ -1,6 +1,6 @@
 # Publishing
 
-The package is `reyem-teardown` (console command: `teardown`). It builds with
+The package and console command are both `teardown`. It builds with
 hatchling and publishes with `uv`.
 
 ## 1. Bump the version
@@ -11,15 +11,15 @@ once — never reuse a number.
 ## 2. Build
 
 ```bash
-uv build
-# -> dist/reyem_teardown-<version>-py3-none-any.whl
-#    dist/reyem_teardown-<version>.tar.gz
+uv build --out-dir dist-release
+# -> dist-release/teardown-<version>-py3-none-any.whl
+#    dist-release/teardown-<version>.tar.gz
 ```
 
 Sanity-check the built artifact before publishing:
 
 ```bash
-uvx --from dist/reyem_teardown-<version>-py3-none-any.whl teardown example.com --single --json-only
+uvx --from dist-release/teardown-<version>-py3-none-any.whl teardown example.com --single --json-only
 ```
 
 ## 3. Publish to PyPI
@@ -27,14 +27,14 @@ uvx --from dist/reyem_teardown-<version>-py3-none-any.whl teardown example.com -
 Create a PyPI API token (https://pypi.org/manage/account/token/), then:
 
 ```bash
-uv publish --token pypi-<your-token>
-# or export UV_PUBLISH_TOKEN=pypi-<token>  &&  uv publish
+uv publish --token pypi-<your-token> dist-release/teardown-*
+# or export UV_PUBLISH_TOKEN=pypi-<token>  &&  uv publish dist-release/teardown-*
 ```
 
 Test against TestPyPI first if you want a dry run:
 
 ```bash
-uv publish --publish-url https://test.pypi.org/legacy/ --token <testpypi-token>
+uv publish --publish-url https://test.pypi.org/legacy/ --token <testpypi-token> dist-release/teardown-*
 ```
 
 ## 4. After publish
@@ -42,7 +42,7 @@ uv publish --publish-url https://test.pypi.org/legacy/ --token <testpypi-token>
 Once live, anyone can run it with no install:
 
 ```bash
-uvx reyem-teardown example.com --single
+uvx teardown example.com --single
 ```
 
 Tag the release:
@@ -55,7 +55,7 @@ git tag v<version> && git push origin v<version>
 
 - `requires-python = ">=3.10"`.
 - Runtime deps: `httpx` and `tldextract` (using its bundled public suffix list).
-  `dnspython` is an optional extra (`reyem-teardown[active-dns]`),
-  only needed for `--active-dns`.
+  `dnspython` is an optional extra (`teardown[active-dns]`),
+  only needed for `--active-dns`. FastMCP is an optional extra (`teardown[mcp]`).
 - CI runs tests on Python 3.10–3.14, builds distributions, and checks the
   installed wheel's CLI. Publishing remains manual with `uv publish`.

@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 dist/
+dist-release/
 build/
 *.egg-info/
 *-teardown.json

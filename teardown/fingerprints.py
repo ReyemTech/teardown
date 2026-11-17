@@ -29,7 +29,7 @@ def external_db_path() -> Path:
     if override:
         return Path(override)
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return base / "reyem-teardown" / "webappanalyzer.json"
+    return base / "teardown" / "webappanalyzer.json"
 
 
 def load_fingerprints() -> list[dict]:
@@ -96,7 +96,7 @@ def _convert_wapp(name: str, item: dict) -> dict:
 def update_external_database(destination: Path | None = None) -> int:
     """Download and convert the optional GPL-3.0 dataset on the user's machine."""
     path = destination or external_db_path()
-    req = urllib.request.Request(_MANIFEST, headers={"User-Agent": "reyem-teardown/0.1"})
+    req = urllib.request.Request(_MANIFEST, headers={"User-Agent": "teardown/0.1"})
     with urllib.request.urlopen(req, timeout=30) as response:
         manifest = json.load(response)
     filenames = sorted(item["name"] for item in manifest if isinstance(item, dict)
@@ -107,7 +107,7 @@ def update_external_database(destination: Path | None = None) -> int:
     total_bytes = 0
     for filename in filenames:
         req = urllib.request.Request(_RAW_SOURCE + filename,
-                                     headers={"User-Agent": "reyem-teardown/0.1"})
+                                     headers={"User-Agent": "teardown/0.1"})
         with urllib.request.urlopen(req, timeout=30) as response:
             data = response.read(2_000_001)
         if len(data) > 2_000_000:

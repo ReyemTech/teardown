@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Dev guide for `reyem-teardown` — a passive web-app architecture recon CLI with
+Dev guide for `teardown` — a passive web-app architecture recon CLI with
 subdomain fan-out. Read this before changing code.
 
 ## What this is

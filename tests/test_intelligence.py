@@ -17,7 +17,7 @@ from teardown.fingerprints import (
 from teardown.http_client import FetchResponse, HttpClient
 from teardown.collectors.headers import parse_headers
 from teardown.safety import safe_headers
-from teardown.models import HostTeardown, Detection
+from teardown.models import HostTeardown, Detection, ScanResult, EnumerationInfo
 from teardown.analyze import analyze_host
 from teardown.render import render_host_markdown
 
@@ -291,13 +291,45 @@ def test_mcp_transport_selection(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mcp_tools_in_process():
+async def test_mcp_tools_in_process(monkeypatch):
     fastmcp = pytest.importorskip("fastmcp")
     from teardown.mcp_server import create_server
+    calls = []
+
+    async def fake_run_scan(target, **kwargs):
+        calls.append((target, kwargs))
+        return ScanResult(root_domain="example.com", hosts=[
+            HostTeardown(target="https://example.com", host="example.com", reachable=True)])
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    async def fake_enumerate(domain, _client, **kwargs):
+        return [domain, f"api.{domain}"], EnumerationInfo(sources=["crt.sh"], subdomains_found=2)
+
+    monkeypatch.setattr("teardown.mcp_server.run_scan", fake_run_scan)
+    monkeypatch.setattr("teardown.http_client.HttpClient", FakeClient)
+    monkeypatch.setattr("teardown.enumerate.enumerate_subdomains", fake_enumerate)
     async with fastmcp.Client(create_server()) as client:
         tools = await client.list_tools()
-        assert {tool.name for tool in tools} == {"scan_domain", "diff_scans"}
+        assert {tool.name for tool in tools} == {
+            "teardown_host", "teardown_domain", "enumerate_subdomains",
+            "scan_domain", "diff_scans"}
         old = {"root_domain": "example.com", "hosts": []}
         new = {"root_domain": "example.com", "hosts": [{"host": "api.example.com"}]}
         result = await client.call_tool("diff_scans", {"old": old, "new": new})
         assert result.data["added_hosts"] == ["api.example.com"]
+        host = await client.call_tool("teardown_host", {"url": "example.com"})
+        assert host.data["host"] == "example.com"
+        scan = await client.call_tool("teardown_domain", {"domain": "example.com", "active_dns": True})
+        assert scan.data["root_domain"] == "example.com"
+        assert calls[-1][1]["active_dns"] is True
+        subs = await client.call_tool("enumerate_subdomains", {"domain": "example.com"})
+        assert subs.data["hosts"] == ["example.com", "api.example.com"]
