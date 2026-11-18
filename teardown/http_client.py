@@ -21,7 +21,7 @@ from .models import DnsObservation
 from .safety import in_scope, safe_headers, safe_url
 
 USER_AGENT = (
-    "ReyemTech-Teardown/1.0 (+https://reyem.tech; passive architecture recon)"
+    "TechTeardown/1.0 (+https://github.com/ReyemTech/teardown; passive architecture recon)"
 )
 DEFAULT_TIMEOUT = 15.0
 DEFAULT_RETRIES = 1

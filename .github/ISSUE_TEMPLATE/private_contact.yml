@@ -1,0 +1,14 @@
+name: Request private contact
+description: Open a public issue to ask for a private channel without sharing details
+title: "contact: request a private channel"
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include vulnerability details, personal information, target data, or private evidence here. For a Teardown vulnerability, try private vulnerability reporting first."
+  - type: textarea
+    id: category
+    attributes:
+      label: General category
+      description: Use a short, non-sensitive description such as security report or conduct concern.
+    validations:
+      required: true
