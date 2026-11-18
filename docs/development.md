@@ -2,6 +2,16 @@
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    A[Domain] --> B[Passive host discovery]
+    B --> C[Bounded liveness checks]
+    C --> D[Host scan modules]
+    D --> E[Versioned JSON]
+    D --> F[Markdown report]
+    E --> G[SQLite history and diff]
+```
+
 `cli.py` orchestrates scans and output. `enumerate.py` collects in-scope hosts
 and liveness metadata. `scan_modules.py` runs independent host collectors over
 a shared response and injected `Fetcher`; `http_client.py` owns rate limiting,
