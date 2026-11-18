@@ -1,5 +1,8 @@
 # Passive intelligence expansion
 
+> Historical design record. Start with the [maintained guides](README.md) for
+> current behavior.
+
 The scanner remains a deterministic collector of public frontend evidence. This
 increment adds a local fingerprint database, optional upstream import, passive
 enumeration plugins, reusable response cache, and a stable cross-run diff.

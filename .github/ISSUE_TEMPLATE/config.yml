@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/ReyemTech/teardown/security/advisories/new
+    about: Privately report a vulnerability in Teardown.
+  - name: Usage documentation
+    url: https://github.com/ReyemTech/teardown/tree/main/docs
+    about: Read the CLI, output, and MCP guides before opening an issue.

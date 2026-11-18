@@ -1,5 +1,8 @@
 # Teardown Tool — Design
 
+> Historical design record (2026-11-16). Defaults and architecture here may
+> differ from the current release; start with the [maintained guides](README.md).
+
 **Date:** 2026-11-16
 **Status:** Approved (user opted into direct execution)
 **Owner:** Mario Meyer / Reyem Tech

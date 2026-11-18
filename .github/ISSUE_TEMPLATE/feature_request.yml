@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest a bounded public-signal capability
+title: "feat: "
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Use case
+      description: What decision would this help a user make?
+    validations:
+      required: true
+  - type: textarea
+    id: signal
+    attributes:
+      label: Public signal and evidence
+      description: What observable data supports the proposed output?
+    validations:
+      required: true
+  - type: textarea
+    id: bounds
+    attributes:
+      label: Scope and limits
+      description: How would this stay bounded and passive?

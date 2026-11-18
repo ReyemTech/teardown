@@ -1,67 +1,59 @@
-# Publishing
+# Publishing `tech-teardown`
 
-The PyPI distribution is `tech-teardown`, with `tech-teardown` and `teardown`
-console commands. It builds with
-hatchling and publishes from GitHub Actions through PyPI trusted publishing.
+The PyPI distribution is `tech-teardown`. Its installed commands are
+`tech-teardown`, `teardown`, and, with the MCP extra, `teardown-mcp`.
+Hatchling builds the package; GitHub Actions publishes through PyPI trusted
+publishing. The latest version is recorded in `pyproject.toml` and
+[`CHANGELOG.md`](CHANGELOG.md).
 
-## 1. Use Conventional Commits
+## Normal release
 
-Merge a PR into `main` with a Conventional Commit subject. Python Semantic
-Release reads commits since the previous `v<version>` tag: `fix:` and `perf:`
-bump patch, `feat:` bumps minor, and a breaking change bumps major. Other
-types such as `docs:` and `chore:` do not publish by themselves. It updates
-`pyproject.toml`, creates the version tag and GitHub release, and writes the
-changelog. Do not edit the version by hand.
+Merge a PR to `main` with a Conventional Commit subject. `fix:` and `perf:`
+produce patch releases, `feat:` produces a minor release, and a breaking
+change produces a major release under the semantic-release configuration.
+The release workflow tests the merged commit, calculates the next version,
+updates `pyproject.toml` and `CHANGELOG.md`, creates a `v<version>` tag and
+GitHub release, builds distributions, then publishes to PyPI through OIDC.
+Do not edit the version or tag by hand.
 
-## 2. Build locally when needed
+The `main` push trigger uses GitHub `paths-ignore`: a merge containing only
+Markdown, `docs/**` assets, `LICENSE`, or issue/PR templates does **not start**
+the release workflow. A merge containing any other path does start it; semantic
+release then decides whether a version is warranted. PR CI runs independently
+of this filter. Keep the release workflow out of required PR checks because a
+path-filtered workflow can otherwise leave a required check pending.
+
+## Trusted publisher
+
+The [PyPI trusted publisher](https://docs.pypi.org/trusted-publishers/) is
+configured for project `tech-teardown`, GitHub owner `ReyemTech`, repository
+`teardown`, workflow `release.yml`, and no environment. The publish job has
+`id-token: write`; no repository PyPI token is required.
+
+## Verify an artifact locally
 
 ```bash
 uv build --out-dir dist-release
-# -> dist-release/tech_teardown-<version>-py3-none-any.whl
-#    dist-release/tech_teardown-<version>.tar.gz
+uvx --from dist-release/tech_teardown-<version>-py3-none-any.whl teardown --help
 ```
 
-Sanity-check a built artifact:
+The source distribution and wheel should include the project MIT license and
+the bundled OpenTechAlyzer MIT notice. Run the offline tests before merging:
+`.venv/bin/python -m pytest -q`.
 
-```bash
-uvx --from dist-release/tech_teardown-<version>-py3-none-any.whl teardown example.com --single --json-only
-```
+## Recover a failed publish
 
-## 3. PyPI trusted publisher
+If a version tag exists but publishing failed, inspect the failed run and
+confirm the tag and PyPI state first. Manually dispatch `Release to PyPI` with
+the existing numeric version, for example `0.6.0`. The recovery job checks
+out `v<version>`, builds that tagged source, publishes it, and creates the
+GitHub release. It accepts an existing tag; it does not calculate a new
+version. Do not dispatch it for a version already present on PyPI.
 
-The [trusted publisher](https://docs.pypi.org/trusted-publishers/)
-is configured in PyPI with these fields:
+## Dependencies and compatibility
 
-| Field | Value |
-|-------|-------|
-| PyPI project | `tech-teardown` |
-| GitHub owner | `ReyemTech` |
-| Repository | `teardown` |
-| Workflow filename | `release.yml` |
-| Environment | leave blank |
-
-No long-lived token is needed in the repository or workflow.
-
-## 4. Publish to PyPI
-
-Merging into `main` starts `.github/workflows/release.yml`. It tests the
-merged commit, calculates a release, builds the distributions, and publishes
-with GitHub OIDC when a new version was created. The publish job has PyPI
-access; the version job has GitHub contents write access.
-
-## 5. After publish
-
-Once live, anyone can run it with no install:
-
-```bash
-uvx tech-teardown example.com --single
-```
-
-## Notes
-
-- `requires-python = ">=3.10"`.
-- Runtime deps: `httpx` and `tldextract` (using its bundled public suffix list).
-  `dnspython` is an optional extra (`tech-teardown[active-dns]`),
-  only needed for `--active-dns`. FastMCP is an optional extra (`tech-teardown[mcp]`).
-- PR CI runs tests on Python 3.10–3.14, builds distributions, and checks both
-  CLI names from the installed wheel. The release workflow retests on `main`.
+Python 3.10+ is supported. Core dependencies are `httpx`, `tldextract`,
+`rich`, and `dnspython`. The `active-dns` extra remains for compatibility,
+but the wordlist DNS path is controlled by `--active-dns`, not by installing
+an extra. `tech-teardown[mcp]` adds FastMCP. PR CI tests Python 3.10–3.14 and
+smoke-tests the installed wheel's CLI entry points.

@@ -1,5 +1,8 @@
 # Automatic releases
 
+> Historical design record. Start with [PUBLISHING.md](../PUBLISHING.md) for
+> the current release process.
+
 ## Intent
 
 Merging a Conventional Commit to `main` should release a new version of

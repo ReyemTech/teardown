@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 240" role="img" aria-labelledby="title desc">
+  <title id="title">Teardown overview</title>
+  <desc id="desc">A public domain flows through bounded discovery and evidence collection into JSON, Markdown, and scan history.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1730"/><stop offset="1" stop-color="#163652"/></linearGradient>
+    <linearGradient id="accent"><stop stop-color="#32d8c4"/><stop offset="1" stop-color="#68a9ff"/></linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#78a8bb"/></marker>
+  </defs>
+  <rect width="1000" height="240" rx="20" fill="url(#bg)"/>
+  <text x="42" y="53" font-family="Arial,sans-serif" font-size="27" font-weight="700" fill="#f1f7ff">teardown</text>
+  <text x="42" y="81" font-family="Arial,sans-serif" font-size="14" fill="#b8cfdd">Public signals in. Evidence you can compare out.</text>
+  <g font-family="Arial,sans-serif" text-anchor="middle">
+    <rect x="42" y="119" width="180" height="76" rx="13" fill="#213c57" stroke="#4c7793"/>
+    <text x="132" y="149" font-size="17" font-weight="700" fill="#fff">Domain</text>
+    <text x="132" y="175" font-size="13" fill="#b8cfdd">example.com</text>
+    <path d="M228 157H269" stroke="#78a8bb" stroke-width="3" marker-end="url(#arrow)"/>
+    <rect x="280" y="119" width="180" height="76" rx="13" fill="#213c57" stroke="#4c7793"/>
+    <text x="370" y="149" font-size="17" font-weight="700" fill="#fff">Discover</text>
+    <text x="370" y="175" font-size="13" fill="#b8cfdd">Bounded, in scope</text>
+    <path d="M466 157H507" stroke="#78a8bb" stroke-width="3" marker-end="url(#arrow)"/>
+    <rect x="518" y="119" width="180" height="76" rx="13" fill="#213c57" stroke="#4c7793"/>
+    <text x="608" y="149" font-size="17" font-weight="700" fill="#fff">Collect</text>
+    <text x="608" y="175" font-size="13" fill="#b8cfdd">Signals + evidence</text>
+    <path d="M704 157H745" stroke="#78a8bb" stroke-width="3" marker-end="url(#arrow)"/>
+    <rect x="756" y="119" width="202" height="76" rx="13" fill="url(#accent)"/>
+    <text x="857" y="149" font-size="17" font-weight="700" fill="#09273c">Compare</text>
+    <text x="857" y="175" font-size="13" fill="#09273c">JSON · report · history</text>
+  </g>
+</svg>

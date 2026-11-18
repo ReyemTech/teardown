@@ -1,5 +1,8 @@
 # Modular host scans and Astro evidence
 
+> Historical design record. Start with the [maintained guides](README.md) for
+> current behavior.
+
 The live `stint.reyem.tech` homepage currently links to `/_astro/*.js` and
 `/_astro/*.css`, while the bundled Astro rule only matches islands, a generator
 tag, and other inline markers. The new detector therefore misses a deployment
