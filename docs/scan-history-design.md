@@ -1,5 +1,8 @@
 # Progress and scan history
 
+> Historical design record. Start with the [maintained guides](README.md) for
+> current behavior.
+
 ## Intent
 
 Long scans should show useful live progress, keep generated files out of the

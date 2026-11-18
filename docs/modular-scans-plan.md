@@ -1,5 +1,8 @@
 # Implementation plan
 
+> Historical implementation plan. Start with the [maintained guides](README.md)
+> for current behavior.
+
 1. Write offline regression tests for Astro assets, Fastly headers, and current
    `stint.reyem.tech` style responses. Verify red against the merged version.
 2. Merge curated rules with upstream definitions and parse stylesheet sources.

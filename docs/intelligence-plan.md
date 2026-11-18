@@ -1,5 +1,8 @@
 # Implementation plan
 
+> Historical implementation plan. Start with the [maintained guides](README.md)
+> for current behavior.
+
 1. Add schema fields for detections, confidence, liveness and redirect/TLS
    metadata. Write tests for their serialization and evidence redaction.
 2. Convert the MIT upstream fingerprint definitions into bundled JSON with
