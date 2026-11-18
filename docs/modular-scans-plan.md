@@ -4,7 +4,7 @@
 > for current behavior.
 
 1. Write offline regression tests for Astro assets, Fastly headers, and current
-   `stint.reyem.tech` style responses. Verify red against the merged version.
+   Astro/Fastly example responses. Verify red against the merged version.
 2. Merge curated rules with upstream definitions and parse stylesheet sources.
    Add Astro asset rules and fix Fastly liveness metadata.
 3. Add `ScanContext`, named built-in modules, and a small registration interface.

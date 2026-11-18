@@ -89,17 +89,17 @@ def test_legacy_framework_view_includes_build_tools():
     '<link rel="stylesheet" href="/_astro/index.DpanXZtb.css">',
 ])
 def test_astro_detected_from_built_asset_paths(asset):
-    detections = detect_technologies(asset, {}, "https://stint.reyem.tech")
+    detections = detect_technologies(asset, {}, "https://app.example.com")
     astro = next(item for item in detections if item.name == "Astro")
     assert astro.confidence >= 80
     assert "astro" in framework_names(detections)
 
 
-def test_stint_style_headers_identify_fastly_without_cloudflare():
+def test_example_headers_identify_fastly_without_cloudflare():
     headers = {"server": "GitHub.com", "x-fastly-request-id": "request-id",
                "x-served-by": "cache-yto123", "via": "1.1 varnish"}
-    info = parse_headers(response("https://stint.reyem.tech", headers=headers))
-    detections = detect_technologies("", headers, "https://stint.reyem.tech")
+    info = parse_headers(response("https://app.example.com", headers=headers))
+    detections = detect_technologies("", headers, "https://app.example.com")
     assert info.cdn == "fastly"
     assert "Fastly" in {item.name for item in detections}
     assert "Cloudflare" not in {item.name for item in detections}

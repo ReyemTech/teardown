@@ -10,9 +10,10 @@ versions may not receive backports. Check the [changelog](CHANGELOG.md) and
 
 Use [GitHub's private vulnerability reporting](https://github.com/ReyemTech/teardown/security/advisories/new)
 for a vulnerability in Teardown itself. Include the affected version, impact,
-minimal reproduction, and a proposed fix if you have one. If private reporting
-is unavailable, email `mario@reyem.tech` with subject `teardown security`.
-Please do not open a public issue before coordinated disclosure.
+minimal reproduction, and a proposed fix if you have one. If the private
+reporting form is unavailable, open a public [contact request](https://github.com/ReyemTech/teardown/issues/new?template=private_contact.yml) asking for a private contact
+channel without including vulnerability details. Please do not disclose the
+issue publicly before coordinating with the maintainers.
 
 Reports about a **site being scanned** belong to that site's operator or its
 published disclosure channel. A Teardown finding is evidence for review, not
