@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v0.6.1 (2026-11-18)
+
+### Bug Fixes
+
+- Remove domain references and document MCP setup
+  ([`9858e82`](https://github.com/ReyemTech/teardown/commit/9858e8231533d34a1d87c8fce850c195163070ce))
+
+### Chores
+
+- Add trusted release recovery dispatch
+  ([`2bab6c4`](https://github.com/ReyemTech/teardown/commit/2bab6c4de4cc832e7a436ca49842ebf15af18695))
+
+- Prepare package metadata and skip docs releases
+  ([`a8395a1`](https://github.com/ReyemTech/teardown/commit/a8395a1f3fc7cdf1509b3e72c0ea7376c509665e))
+
+### Documentation
+
+- Make package readme render on PyPI
+  ([`0664463`](https://github.com/ReyemTech/teardown/commit/06644632217f2dfd2bebce90eeee9913cc08def8))
+
+- Prepare public project documentation
+  ([`721d892`](https://github.com/ReyemTech/teardown/commit/721d892760fd8284f181047d7274e45c92e21e21))
+
+
 ## v0.6.0 (2026-11-17)
 
 ### Features
