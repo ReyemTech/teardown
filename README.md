@@ -1,11 +1,10 @@
 # Teardown
 
-[![CI](https://github.com/ReyemTech/teardown/actions/workflows/ci.yml/badge.svg)](https://github.com/ReyemTech/teardown/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/tech-teardown)](https://pypi.org/project/tech-teardown/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tech-teardown)](https://pypi.org/project/tech-teardown/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/ReyemTech/teardown/blob/main/LICENSE)
 
-![A domain flowing through bounded discovery and evidence collection into comparable results](https://raw.githubusercontent.com/ReyemTech/teardown/main/docs/assets/teardown-overview.svg)
+![A domain flowing through bounded discovery and evidence collection into comparable results](docs/assets/teardown-overview.svg)
 
 **Understand what a public web app reveals about its architecture.** Teardown
 discovers in-scope hosts, collects frontend and network evidence, and writes a
