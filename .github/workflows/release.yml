@@ -3,6 +3,14 @@ name: Release to PyPI
 on:
   push:
     branches: [main]
+    # A documentation-only merge should not start semantic-release.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE*'
+      - '.mcp.json.example'
   workflow_dispatch:
     inputs:
       version:

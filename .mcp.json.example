@@ -3,8 +3,7 @@
     "teardown": {
       "command": "uvx",
       "args": [
-        "--with", "fastmcp",
-        "--from", "git+ssh://git@github.com/ReyemTech/teardown",
+        "--from", "tech-teardown[mcp]",
         "teardown-mcp"
       ]
     }

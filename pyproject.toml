@@ -8,16 +8,23 @@ version = "0.6.0"
 description = "Passive web-app architecture reconnaissance with subdomain fan-out, emitting an agent-readable JSON contract."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE", "teardown/data/LICENSE-opentechalyzer"]
 authors = [{ name = "Mario Meyer", email = "mario@reyem.tech" }]
 keywords = ["recon", "security", "osint", "teardown", "subdomains", "passive"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Topic :: Security",
     "Environment :: Console",
 ]
 dependencies = ["httpx>=0.27,<1.0", "tldextract>=5.1,<6.0", "rich>=14,<16", "dnspython>=2.6,<3.0"]
+
+[project.urls]
+Homepage = "https://github.com/ReyemTech/teardown"
+Documentation = "https://github.com/ReyemTech/teardown/tree/main/docs"
+Repository = "https://github.com/ReyemTech/teardown"
+Issues = "https://github.com/ReyemTech/teardown/issues"
+Changelog = "https://github.com/ReyemTech/teardown/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 active-dns = ["dnspython>=2.6,<3.0"]

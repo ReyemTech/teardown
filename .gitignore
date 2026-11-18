@@ -7,4 +7,9 @@ dist-release/
 build/
 *.egg-info/
 *-teardown.json
+*-teardown.md
 .teardown-cache/
+.teardown/
+*.sqlite3
+.coverage
+htmlcov/
